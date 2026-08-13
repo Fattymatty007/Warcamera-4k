@@ -265,3 +265,19 @@ footer .btn{flex:1;}
 
 ::-webkit-scrollbar{width:6px;}
 ::-webkit-scrollbar-thumb{background:var(--iron);}
+
+/* install instructions modal */
+.modalOverlay{
+  position:fixed; inset:0; background:rgba(0,0,0,0.7);
+  display:flex; align-items:center; justify-content:center; padding:20px;
+  z-index:50;
+}
+.modalCard{
+  width:100%; max-width:400px; padding:20px;
+  background:var(--panel2); border:1px solid var(--brass);
+}
+.modalTitle{
+  font-family:Impact,'Arial Narrow',sans-serif; font-stretch:condensed;
+  font-size:18px; letter-spacing:2px; color:var(--parchment); margin-bottom:10px;
+}
+.modalBody{font-size:12px; color:var(--muted); line-height:1.6;}

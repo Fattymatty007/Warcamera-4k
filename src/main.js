@@ -23,6 +23,65 @@ function setStatus(state, text){
 
 function clearFooter(){ footer.style.display='none'; footer.innerHTML=''; }
 
+// ---------- PWA INSTALL ----------
+// index.html's early inline script captures beforeinstallprompt (which can
+// fire before this module loads) onto window.__deferredInstallPrompt and
+// relays it via these custom events.
+let installPromptEvt = (typeof window !== 'undefined' && window.__deferredInstallPrompt) || null;
+let appInstalled = false;
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !window.MSStream;
+
+function canInstall(){ return !isStandalone && !appInstalled; }
+
+window.addEventListener('pwa-install-available', () => {
+  installPromptEvt = window.__deferredInstallPrompt || null;
+  if(document.getElementById('scanBtn') && !document.getElementById('installBtn')) renderHome();
+});
+window.addEventListener('pwa-installed', () => {
+  installPromptEvt = null;
+  appInstalled = true;
+  if(document.getElementById('installBtn')) renderHome();
+});
+
+async function handleInstall(){
+  // 1. Newer Web Install API (Chrome 139+): installs directly, no captured
+  //    beforeinstallprompt event needed.
+  if(typeof navigator !== 'undefined' && typeof navigator.install === 'function'){
+    try{ await navigator.install(); return; }
+    catch(e){ if(e && e.name === 'AbortError') return; /* else fall through */ }
+  }
+  // 2. Classic captured beforeinstallprompt event.
+  const dp = installPromptEvt || (typeof window !== 'undefined' ? window.__deferredInstallPrompt : null);
+  if(dp){
+    dp.prompt();
+    try{ await dp.userChoice; }catch(e){ /* ignore */ }
+    installPromptEvt = null;
+    if(typeof window !== 'undefined') window.__deferredInstallPrompt = null;
+    return;
+  }
+  // 3. Nothing the browser will trigger programmatically — manual instructions.
+  showManualInstallModal();
+}
+
+function showManualInstallModal(){
+  const body = isIos
+    ? 'Tap the Share icon in Safari, then choose "Add to Home Screen".'
+    : 'Open your browser menu (⋮) and tap "Install app" — or "Add to Home screen" then "Install". Avoid "Create shortcut": that only opens in the browser.';
+  const overlay = document.createElement('div');
+  overlay.className = 'modalOverlay';
+  overlay.innerHTML = `
+    <div class="modalCard">
+      <div class="modalTitle">Install Auspex Scanner</div>
+      <div class="modalBody">${escapeHtml(body)}</div>
+      <button class="btn primary" id="modalGotIt" style="margin-top:14px;">Got It</button>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  document.getElementById('modalGotIt').onclick = () => overlay.remove();
+}
+
 // ---------- SCREEN: HOME ----------
 function renderHome(){
   clearFooter();
@@ -30,6 +89,7 @@ function renderHome(){
   onPhotoReady = identifyFromImage;
   onCameraCancel = renderHome;
   main.innerHTML = `
+    ${canInstall() ? '<button class="btn gold" id="installBtn">⬇ Install App</button>' : ''}
     <button class="btn primary" id="scanBtn">📷 Scan Miniature</button>
     <button class="btn gold" id="uploadBtn">🖼 Upload a Photo</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none;" />
@@ -45,6 +105,7 @@ function renderHome(){
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
     </div>
   `;
+  if(document.getElementById('installBtn')) document.getElementById('installBtn').onclick = handleInstall;
   document.getElementById('scanBtn').onclick = openCamera;
 
   document.getElementById('uploadBtn').onclick = () => {
