@@ -1,0 +1,10 @@
+name = "warcamera-proxy"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://warcamera.mattsapps.xyz,http://localhost:5173"
+
+# The actual secret is NOT set here — after deploying, run:
+#   wrangler secret put ANTHROPIC_API_KEY
+# See ../SETUP.md.
