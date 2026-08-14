@@ -10,8 +10,9 @@ and [In Stock](https://github.com/Fattymatty007/In-Stock): a static Vite build
 deployed to GitHub Pages under its own `mattsapps.xyz` subdomain, linked from
 the [mattsapps](https://github.com/Fattymatty007/mattsapps) launcher.
 
-Unlike those two, this app calls the Claude API (vision to identify the
-miniature, web search to pull the datasheet) — see [SETUP.md](SETUP.md) for
+Unlike those two, this app calls the Gemini API (vision to identify the
+miniature, Google Search grounding to pull the datasheet) — Gemini has a
+free usage tier, so this can run at no cost. See [SETUP.md](SETUP.md) for
 the one-time Cloudflare Worker deploy that makes that possible without
 shipping an API key to the browser.
 

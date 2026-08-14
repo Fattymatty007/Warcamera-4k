@@ -1,21 +1,26 @@
 # Setup: Cloudflare Worker + GitHub Pages
 
 Auspex Scanner needs three things before it's a real, working, installable
-app: an Anthropic API key, a small Cloudflare Worker that holds that key and
+app: a Gemini API key, a small Cloudflare Worker that holds that key and
 proxies requests (so the browser never sees it), and GitHub Pages wired up
 the same way as Dinner Bell / In Stock. Do these in order.
 
-## 1. Get an Anthropic API key
+## 1. Get a Gemini API key
 
-1. Go to the [Anthropic Console](https://console.anthropic.com) → **API Keys**.
-2. Create a key. Add credits/billing if you haven't already — this app's
-   usage (a handful of vision + web-search calls per scan) is cheap, but not
-   free.
+1. Go to [Google AI Studio](https://aistudio.google.com/apikey) and sign in
+   with a Google account.
+2. Create an API key. Gemini has a **free tier** — no billing required to
+   get started — but it's rate-limited (requests per minute/day, and Google
+   Search grounding has its own separate free quota). Check current limits
+   at [ai.google.dev/pricing](https://ai.google.dev/pricing); if you outgrow
+   the free tier, the same key keeps working once you attach billing.
+3. This app targets `gemini-2.5-flash` (set in `worker/src/index.js`) —
+   change that constant if you want a different model.
 
 ## 2. Deploy the Cloudflare Worker
 
 The worker lives in this repo's `worker/` directory. It's a thin proxy: the
-app sends it a request, it adds your API key, forwards to Anthropic, and
+app sends it a request, it adds your API key, forwards to Gemini, and
 returns the response — restricted by CORS to your app's own origin so a
 random site can't ride on your key.
 
@@ -33,10 +38,10 @@ random site can't ride on your key.
    ```
    Wrangler prints a URL like `https://warcamera-proxy.<your-subdomain>.workers.dev`.
    **Copy it** — you'll need it in step 4.
-4. Set your Anthropic key as a secret on the worker (never put it in
+4. Set your Gemini key as a secret on the worker (never put it in
    `wrangler.toml` or any committed file):
    ```sh
-   wrangler secret put ANTHROPIC_API_KEY
+   wrangler secret put GEMINI_API_KEY
    ```
    Paste the key from step 1 when prompted.
 

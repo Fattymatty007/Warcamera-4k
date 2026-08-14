@@ -1,8 +1,10 @@
 import './style.css';
-import { callClaude } from './api.js';
+import { callGemini } from './api.js';
 import { loadCustomModels, saveCustomModelsList } from './storage.js';
 
-const MODEL = 'claude-sonnet-5';
+// The model itself is fixed in the Cloudflare Worker's request URL (see
+// worker/src/index.js) — not sent from here, since Gemini's endpoint is
+// per-model rather than taking a `model` field in the request body.
 
 const main = document.getElementById('main');
 const footer = document.getElementById('footer');
@@ -325,8 +327,10 @@ function renderLoading(status, sub){
 
 // ---------- API HELPERS ----------
 function extractText(data){
-  if(!data || !data.content) return '';
-  return data.content.map(b => b.type==='text' ? b.text : '').filter(Boolean).join('\n');
+  const parts = data && data.candidates && data.candidates[0] &&
+    data.candidates[0].content && data.candidates[0].content.parts;
+  if(!parts) return '';
+  return parts.map(p => p.text || '').filter(Boolean).join('\n');
 }
 
 function parseJsonLoose(text){
@@ -430,22 +434,22 @@ async function identifyFromImage(rawDataUrl){
   const base64 = dataUrl.split(',')[1];
   const customModels = await loadCustomModels();
 
-  const contentBlocks = [];
+  const parts = [];
   if(customModels.length){
-    contentBlocks.push({ type:'text', text:
+    parts.push({ text:
 `The user has personally registered the following custom or converted miniatures, each assigned to a specific unit. Before general identification, check whether the NEW PHOTO (shown last) is clearly the SAME physical miniature as one of these — same conversion, same pose, same specific model, not merely the same generic unit type. Each reference below is labeled with a custom_id.` });
     customModels.forEach(m => {
-      contentBlocks.push({ type:'text', text: `Reference [custom_id: ${m.id}] — label "${m.label}", assigned to unit "${m.unitName}"${m.faction ? ' ('+m.faction+')' : ''}:` });
+      parts.push({ text: `Reference [custom_id: ${m.id}] — label "${m.label}", assigned to unit "${m.unitName}"${m.faction ? ' ('+m.faction+')' : ''}:` });
       const refBase64 = (m.thumb || '').split(',')[1];
       if(refBase64){
-        contentBlocks.push({ type:'image', source:{ type:'base64', media_type:'image/jpeg', data: refBase64 } });
+        parts.push({ inline_data:{ mime_type:'image/jpeg', data: refBase64 } });
       }
     });
-    contentBlocks.push({ type:'text', text: 'NEW PHOTO to identify:' });
+    parts.push({ text: 'NEW PHOTO to identify:' });
   }
-  contentBlocks.push({ type:'image', source:{ type:'base64', media_type:'image/jpeg', data: base64 } });
+  parts.push({ inline_data:{ mime_type:'image/jpeg', data: base64 } });
 
-  contentBlocks.push({ type:'text', text:
+  parts.push({ text:
 `You are looking at a photo of a Warhammer 40,000 tabletop miniature${customModels.length ? ' (the NEW PHOTO above)' : ''}. ${customModels.length ? 'First check it against the numbered custom references above for a strong visual match — if it clearly matches one, use the assigned unit_name/faction from that reference and set matched_custom_id. Otherwise, ' : ''}identify which current 10th-edition unit datasheet this model most likely represents.
 
 Before answering, look closely at distinguishing physical details rather than just overall silhouette or faction theme — many large monster/character models from the same faction look similar at a glance but differ in specifics. Check things like: exact head count, what (if anything) is held in each hand (staff vs sword vs no weapon), wing type and shape, base size, and any unique iconography or asymmetry. Commonly confused pairs include, for example, Kairos Fateweaver (two heads, carries a staff) vs Magnus the Red (one head, no staff, more armoured/sorcerous look) among large Tzeentch models — use that kind of feature-level comparison for any faction, not just this example.
@@ -456,13 +460,9 @@ Give only your single best match, not a ranked list. Do not include any text out
   });
 
   try{
-    const data = await callClaude({
-      model: MODEL,
-      max_tokens: 1200,
-      messages:[{
-        role:'user',
-        content: contentBlocks
-      }]
+    const data = await callGemini({
+      contents: [{ role: 'user', parts }],
+      generationConfig: { maxOutputTokens: 1200 },
     });
 
     const text = extractText(data);
@@ -647,11 +647,10 @@ Then respond with ONLY valid JSON, no markdown fences, no preamble, in exactly t
 If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
 
   try{
-    const data = await callClaude({
-      model: MODEL,
-      max_tokens: isLight ? 1300 : 1800,
-      messages:[{ role:'user', content: isLight ? lightPrompt : fullPrompt }],
-      tools:[{ type:'web_search_20260209', name:'web_search' }]
+    const data = await callGemini({
+      contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
+      generationConfig: { maxOutputTokens: isLight ? 1300 : 1800 },
+      tools: [{ google_search: {} }],
     });
 
     const text = extractText(data);
