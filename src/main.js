@@ -342,7 +342,14 @@ function parseJsonLoose(text){
     return JSON.parse(slice);
   }catch(e){
     console.error('JSON parse failed. Raw response was:', text);
-    throw new Error('Got an incomplete or malformed response — please try again.');
+    // Surface a snippet of what the model actually said (most often it got
+    // cut off mid-JSON by hitting the output token cap) instead of just a
+    // generic message — otherwise diagnosing this needs browser devtools.
+    const preview = (text || '').trim().slice(-200);
+    throw new Error(
+      'Got an incomplete or malformed response — please try again.' +
+      (preview ? ' (end of response: "' + preview + '")' : '')
+    );
   }
 }
 
@@ -462,7 +469,7 @@ Give only your single best match, not a ranked list. Do not include any text out
   try{
     const data = await callGemini({
       contents: [{ role: 'user', parts }],
-      generationConfig: { maxOutputTokens: 1200 },
+      generationConfig: { maxOutputTokens: 2000 },
     });
 
     const text = extractText(data);
@@ -649,7 +656,10 @@ If the unit cannot be confidently found, instead respond with ONLY: {"error": "e
   try{
     const data = await callGemini({
       contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
-      generationConfig: { maxOutputTokens: isLight ? 1300 : 1800 },
+      // Generous headroom: grounded (Google Search) responses spend part of
+      // the token budget on the search/reasoning process itself before the
+      // final JSON, so a tight cap here was cutting the JSON off mid-object.
+      generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
       tools: [{ google_search: {} }],
     });
 
