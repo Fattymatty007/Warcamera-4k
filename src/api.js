@@ -18,7 +18,15 @@ export async function callGemini(body) {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error('API error ' + res.status);
+    // Surface Gemini's actual error message (e.g. "model overloaded" vs
+    // "quota exceeded") instead of just the status code — the two need
+    // very different fixes and the code alone doesn't distinguish them.
+    let detail = '';
+    try {
+      const errJson = await res.json();
+      detail = errJson?.error?.message || '';
+    } catch (e) { /* body wasn't JSON — fall back to bare status */ }
+    throw new Error('API error ' + res.status + (detail ? ': ' + detail : ''));
   }
   return res.json();
 }
