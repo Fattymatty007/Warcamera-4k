@@ -9,11 +9,14 @@ the same way as Dinner Bell / In Stock. Do these in order.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/apikey) and sign in
    with a Google account.
-2. Create an API key. Gemini has a **free tier** — no billing required to
-   get started — but it's rate-limited (requests per minute/day, and Google
-   Search grounding has its own separate free quota). Check current limits
-   at [ai.google.dev/pricing](https://ai.google.dev/pricing); if you outgrow
-   the free tier, the same key keeps working once you attach billing.
+2. Create an API key. Gemini has a **free tier** — no billing required.
+   This app deliberately avoids Google Search grounding (that feature needs
+   billing enabled even for free-tier usage volume), so a plain free key
+   with no payment method attached is enough — that matters if you're
+   sharing this app with other people, since each person's own free key
+   should just work without them needing to set up billing. It's still
+   rate-limited (requests per minute/day) — check current limits at
+   [ai.google.dev/pricing](https://ai.google.dev/pricing).
 3. This app targets `gemini-flash-latest` (set in `worker/src/index.js`) —
    change that constant if you want a different model. Prefer a `-latest`
    alias over a dated model name where one exists — Google retires dated

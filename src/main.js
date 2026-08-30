@@ -101,8 +101,8 @@ function renderHome(){
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
     <div class="noteBox">
       Visual identification is AI best-effort — paint jobs, conversions and unpainted models reduce accuracy.
-      You'll be able to confirm or correct the result before stats are pulled from Wahapedia.
-      Rule text is paraphrased, not quoted verbatim from Games Workshop.
+      You'll be able to confirm or correct the result before stats are pulled up.
+      Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
       If your browser blocks camera access, Upload a Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
     </div>
@@ -625,8 +625,8 @@ async function fetchDatasheet(unitName, faction, mode){
 
   const isLight = mode === 'confirm';
 
-  const lightPrompt = `Search Wahapedia.com for the current Warhammer 40,000 (10th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}. This is a quick stat check, not the full datasheet — be efficient, but getting real numbers matters more than saving a search.
-Start with one targeted query like "${unitName} Wahapedia 10th edition datasheet". Wahapedia's stat table sometimes doesn't appear in a search snippet even though the page has it — if your first result doesn't give you the actual numeric stat line and weapon profile numbers, don't give up: run one more search, either rephrased (add words like "toughness wounds save attacks") or targeting a plain-text secondary source that quotes the same current official numbers (a community wiki, army-list builder export, or site like Goonhammer). Never fabricate, estimate, or guess a number — only report figures you actually found in a search result. Only return the error JSON if two searches still don't confirm the numbers.
+  const lightPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet stat line for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. This is a quick stat check, not the full datasheet.
+Only report numbers you're actually confident are accurate for this unit's current datasheet — do not guess or invent a number you're unsure of. Points values and rules do change with balance updates, so if you're not reasonably confident your knowledge is current, say so via the error response below rather than reporting a stale or made-up figure.
 Respond with ONLY valid JSON, no markdown fences, no preamble, containing just the core stat line and weapons — nothing else:
 {
  "unit_name": "...",
@@ -637,9 +637,9 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, containing just t
 }
 Do not include unit_composition, abilities, or keyword lists — they aren't needed for this quick check. If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Do not include anything outside the JSON object.`;
 
-  const fullPrompt = `Search Wahapedia.com for the current Warhammer 40,000 (10th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}. Use the most current points and rules available.
-Be efficient, but getting real numbers matters more than saving a search: start with a targeted query like "${unitName} Wahapedia 10th edition datasheet" and use that result if it clearly gives you complete, accurate numbers. Wahapedia's stat table sometimes doesn't appear in a search snippet even though the page has it — if the numeric stat line or weapon profiles are missing or incomplete, don't give up: search again, either rephrased or targeting a plain-text secondary source that quotes the same current official numbers (a community wiki, army-list builder export, or site like Goonhammer). Never fabricate, estimate, or guess a number — only report figures you actually found in a search result. Use up to 3 searches total if needed.
-Then respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
+  const fullPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. Use the most current points and rules you know.
+Only report numbers and rules you're actually confident are accurate for this unit's current datasheet — do not guess or invent anything you're unsure of. Points values and rules do change with balance updates, so if you're not reasonably confident your knowledge is current for this unit, say so via the error response below rather than reporting a stale or made-up figure.
+Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
 {
  "unit_name": "...",
  "faction": "...",
@@ -654,13 +654,18 @@ Then respond with ONLY valid JSON, no markdown fences, no preamble, in exactly t
 If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
 
   try{
+    // No Google Search grounding here — answers come from the model's own
+    // trained knowledge. Grounding needs a billing-enabled Google Cloud
+    // project even within free-tier usage volume, which would mean every
+    // person using this app (not just its owner) has to attach a payment
+    // method before datasheet lookups work. Plain (non-grounded) requests
+    // stay on the free tier with no billing required, at the cost of
+    // possibly-stale stats if GW has issued a balance update since the
+    // model's training cutoff — the prompts above ask the model to say so
+    // via the error response rather than guess.
     const data = await callGemini({
       contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
-      // Generous headroom: grounded (Google Search) responses spend part of
-      // the token budget on the search/reasoning process itself before the
-      // final JSON, so a tight cap here was cutting the JSON off mid-object.
       generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
-      tools: [{ google_search: {} }],
     });
 
     const text = extractText(data);
@@ -760,7 +765,7 @@ function renderDatasheet(d){
         <div class="chips">${keywordChips}${factionChips}</div>
       </div>` : ''}
 
-      <div class="noteBox">Rules paraphrased from current Wahapedia listings. Always confirm against your army's official app or GW source before a tournament.</div>
+      <div class="noteBox">Stats and rules come from the AI's own knowledge, not a live lookup, and are paraphrased rather than quoted. Always confirm against your army's official app or GW source before a tournament.</div>
     </div>
   `;
 
