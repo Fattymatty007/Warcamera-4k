@@ -1,0 +1,30 @@
+name: Deploy Cloudflare Worker
+
+# Deploys worker/ to Cloudflare and pushes the GEMINI_API_KEY secret to it.
+# Needs two repo secrets, set at GitHub repo → Settings → Secrets and
+# variables → Actions → New repository secret (see worker/../SETUP.md):
+#   CLOUDFLARE_API_TOKEN — a Cloudflare API token (Workers edit permission)
+#   GEMINI_API_KEY        — your Gemini API key from Google AI Studio
+# Neither secret is ever shown again after saving, on this page or in logs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: worker
+          secrets: |
+            GEMINI_API_KEY
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
