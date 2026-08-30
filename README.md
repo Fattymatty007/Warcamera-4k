@@ -21,6 +21,12 @@ update might not be reflected — the app says so on-screen. See
 [SETUP.md](SETUP.md) for the one-time Cloudflare Worker deploy that keeps
 the API key out of the browser.
 
+By default every visitor shares the worker owner's key. Anyone can opt out
+of that via **🔑 API Key Settings** on the home screen and paste in their
+own free Gemini key instead — it's stored only on their device and passed
+through the worker per-request (never stored or logged server-side), so
+their usage draws from their own quota rather than the owner's.
+
 ## Local development
 
 ```sh

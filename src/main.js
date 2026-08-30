@@ -1,6 +1,6 @@
 import './style.css';
 import { callGemini } from './api.js';
-import { loadCustomModels, saveCustomModelsList } from './storage.js';
+import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey } from './storage.js';
 
 // The model itself is fixed in the Cloudflare Worker's request URL (see
 // worker/src/index.js) — not sent from here, since Gemini's endpoint is
@@ -96,6 +96,7 @@ function renderHome(){
     <button class="btn gold" id="uploadBtn">🖼 Upload a Photo</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none;" />
     <button class="btn ghost" id="customLibBtn">📋 My Custom Models</button>
+    <button class="btn ghost" id="apiKeyBtn">🔑 API Key Settings</button>
     <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
@@ -123,6 +124,7 @@ function renderHome(){
   });
 
   document.getElementById('customLibBtn').onclick = renderCustomLibrary;
+  document.getElementById('apiKeyBtn').onclick = renderApiKeySettings;
 
   document.getElementById('manualBtn').onclick = () => {
     const v = document.getElementById('manualInput').value.trim();
@@ -512,6 +514,45 @@ function renderManualSearch(){
     if(v) fetchDatasheet(v, '', 'direct');
   };
   document.getElementById('homeBtn').onclick = renderHome;
+}
+
+// ---------- SCREEN: API KEY SETTINGS ----------
+async function renderApiKeySettings(){
+  clearFooter();
+  setStatus('', 'STANDBY');
+
+  const currentKey = await loadUserApiKey();
+  const masked = currentKey ? '•'.repeat(Math.max(0, currentKey.length - 4)) + currentKey.slice(-4) : '';
+
+  main.innerHTML = `
+    <div class="noteBox">
+      By default this app uses a shared API key so it works with zero setup. If you'd rather use your own free Gemini API key — so your usage never competes with anyone else's — paste it below. Your key is stored only on this device (never on any server), and is sent along with each request to this app's worker, which forwards it straight to Google for that one request and never stores or logs it.
+    </div>
+    ${currentKey ? `<div class="noteBox" style="border-top:none; padding-top:0;">Currently using your own key: <strong>${escapeHtml(masked)}</strong></div>` : ''}
+    <input type="password" id="apiKeyInput" placeholder="Paste your Gemini API key" value="${currentKey ? escapeHtml(currentKey) : ''}" />
+    <button class="btn primary" id="saveKeyBtn" style="margin-top:10px;">✓ Save &amp; Use My Key</button>
+    ${currentKey ? '<button class="btn ghost" id="clearKeyBtn">✕ Stop Using My Key</button>' : ''}
+    <button class="btn ghost" id="getKeyBtn">🔗 Get a Free Key from Google AI Studio</button>
+    <button class="btn ghost" id="settingsHomeBtn">🏠 Home</button>
+  `;
+
+  document.getElementById('saveKeyBtn').onclick = async () => {
+    const input = document.getElementById('apiKeyInput');
+    const val = input.value.trim();
+    if(!val){ input.focus(); return; }
+    await saveUserApiKey(val);
+    renderApiKeySettings();
+  };
+  if(currentKey){
+    document.getElementById('clearKeyBtn').onclick = async () => {
+      await saveUserApiKey('');
+      renderApiKeySettings();
+    };
+  }
+  document.getElementById('getKeyBtn').onclick = () => {
+    window.open('https://aistudio.google.com/apikey', '_blank', 'noopener');
+  };
+  document.getElementById('settingsHomeBtn').onclick = renderHome;
 }
 
 // ---------- SCREEN: CUSTOM MODEL LIBRARY ----------

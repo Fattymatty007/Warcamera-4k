@@ -6,15 +6,25 @@
 //
 // Set VITE_WORKER_URL at build time (see SETUP.md) to your deployed
 // worker's URL, e.g. https://warcamera-proxy.your-subdomain.workers.dev
+import { loadUserApiKey } from './storage.js';
+
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || '';
 
 export async function callGemini(body) {
   if (!WORKER_URL) {
     throw new Error('Scanner is not configured — no worker URL set (see SETUP.md)');
   }
+  // If the visitor has entered their own Gemini key (see "Use My Own API
+  // Key" in Settings), send it along — the worker uses it instead of its
+  // own secret for this request, so their usage draws from their own free
+  // tier rather than the worker owner's.
+  const userKey = await loadUserApiKey();
+  const headers = { 'Content-Type': 'application/json' };
+  if (userKey) headers['X-Gemini-User-Key'] = userKey;
+
   const res = await fetch(WORKER_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) {

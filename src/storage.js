@@ -21,3 +21,25 @@ export async function saveCustomModelsList(list) {
     console.error('Failed to save custom models', e);
   }
 }
+
+// Optional per-visitor Gemini API key — lets someone use their own free
+// quota instead of the shared worker owner's. Stored only on this device.
+const API_KEY_KEY = 'warcamera-user-api-key';
+
+export async function loadUserApiKey() {
+  try {
+    return localStorage.getItem(API_KEY_KEY) || '';
+  } catch (e) {
+    console.error('Failed to load user API key', e);
+    return '';
+  }
+}
+
+export async function saveUserApiKey(key) {
+  try {
+    if (key) localStorage.setItem(API_KEY_KEY, key);
+    else localStorage.removeItem(API_KEY_KEY);
+  } catch (e) {
+    console.error('Failed to save user API key', e);
+  }
+}

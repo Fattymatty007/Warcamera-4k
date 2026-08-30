@@ -6,6 +6,16 @@
 // exhausted). This worker holds the key as a server-side secret and forwards
 // requests, restricting browser callers to the app's own origin via CORS.
 //
+// A visitor can optionally supply their own Gemini key via the
+// X-Gemini-User-Key header (see src/api.js / the in-app "Use My Own API
+// Key" setting) — when present it's used instead of the worker's own
+// secret, so that visitor's usage draws from their own quota, not the
+// worker owner's. Calling Gemini directly from the browser isn't reliable
+// (CORS support on generativelanguage.googleapis.com is inconsistent), so
+// this still routes through the worker even for a visitor's own key — the
+// key is only ever held in memory for the life of this one request, never
+// logged or persisted anywhere server-side.
+//
 // Note: CORS only stops *browser* callers outside the allowed origin —
 // someone with the worker URL could still call it directly with curl,
 // since Origin isn't enforced for non-browser requests. That's an accepted
@@ -30,7 +40,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': allowOrigin,
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Gemini-User-Key',
       'Vary': 'Origin',
     };
 
@@ -42,7 +52,9 @@ export default {
       return new Response('Method not allowed', { status: 405, headers: corsHeaders });
     }
 
-    if (!env.GEMINI_API_KEY) {
+    const apiKey = request.headers.get('X-Gemini-User-Key') || env.GEMINI_API_KEY;
+
+    if (!apiKey) {
       return new Response(
         JSON.stringify({ error: 'Worker is not configured with an API key (missing GEMINI_API_KEY secret)' }),
         { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } },
@@ -57,7 +69,7 @@ export default {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': env.GEMINI_API_KEY,
+          'x-goog-api-key': apiKey,
         },
         body,
       },
