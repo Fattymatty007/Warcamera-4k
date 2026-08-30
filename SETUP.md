@@ -14,8 +14,10 @@ the same way as Dinner Bell / In Stock. Do these in order.
    Search grounding has its own separate free quota). Check current limits
    at [ai.google.dev/pricing](https://ai.google.dev/pricing); if you outgrow
    the free tier, the same key keeps working once you attach billing.
-3. This app targets `gemini-2.5-flash` (set in `worker/src/index.js`) —
-   change that constant if you want a different model.
+3. This app targets `gemini-flash-latest` (set in `worker/src/index.js`) —
+   change that constant if you want a different model. Prefer a `-latest`
+   alias over a dated model name where one exists — Google retires dated
+   model IDs periodically, and a pinned one silently 404s once that happens.
 
 ## 2. Deploy the Cloudflare Worker
 

@@ -12,9 +12,11 @@
 // tradeoff for a small personal app with no server-side user accounts; if
 // abuse becomes a concern, add a Cloudflare rate-limiting rule on this route.
 
-// Keep in sync with MODEL in src/main.js — the client builds a Gemini
-// generateContent request body, but the model itself is part of the URL.
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// `gemini-flash-latest` always points at Google's current default Flash
+// model — confirmed against the cURL quickstart Google generates for this
+// account's own API key, since a pinned dated model name (e.g.
+// gemini-2.5-flash) can 404 once Google retires or renames it.
+const GEMINI_MODEL = 'gemini-flash-latest';
 
 export default {
   async fetch(request, env) {
