@@ -43,3 +43,25 @@ export async function saveUserApiKey(key) {
     console.error('Failed to save user API key', e);
   }
 }
+
+// Battles — each tracks two rosters (yours vs your opponent's) of scanned
+// units for one game, so any datasheet can be reopened without rescanning.
+const BATTLES_KEY = 'warcamera-battles';
+
+export async function loadBattles() {
+  try {
+    const raw = localStorage.getItem(BATTLES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error('Failed to load battles', e);
+    return [];
+  }
+}
+
+export async function saveBattlesList(list) {
+  try {
+    localStorage.setItem(BATTLES_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error('Failed to save battles', e);
+  }
+}

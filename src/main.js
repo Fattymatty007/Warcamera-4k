@@ -1,6 +1,6 @@
 import './style.css';
 import { callGemini } from './api.js';
-import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey } from './storage.js';
+import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList } from './storage.js';
 
 // The model itself is fixed in the Cloudflare Worker's request URL (see
 // worker/src/index.js) — not sent from here, since Gemini's endpoint is
@@ -17,6 +17,11 @@ let lastImageDataUrl = null;
 // adding a custom model — set before opening the camera, reset in renderHome().
 let onPhotoReady = null; // assigned once identifyFromImage is defined below
 let onCameraCancel = null; // assigned once renderHome is defined below
+// { battleId, team: 'my'|'opponent' } while a scan is being logged into a
+// battle roster — null for a normal, non-battle scan. Set when the user
+// picks a side in renderBattleScanChoice(); read by renderDatasheet() to
+// decide whether to save the result. Reset to null in renderHome().
+let currentBattleContext = null;
 
 function setStatus(state, text){
   statusDot.className = 'dot' + (state ? ' '+state : '');
@@ -90,12 +95,14 @@ function renderHome(){
   setStatus('', 'STANDBY');
   onPhotoReady = identifyFromImage;
   onCameraCancel = renderHome;
+  currentBattleContext = null;
   main.innerHTML = `
     ${canInstall() ? '<button class="btn gold" id="installBtn">⬇ Install App</button>' : ''}
     <button class="btn primary" id="scanBtn">📷 Scan Miniature</button>
     <button class="btn gold" id="uploadBtn">🖼 Upload a Photo</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none;" />
     <button class="btn ghost" id="customLibBtn">📋 My Custom Models</button>
+    <button class="btn ghost" id="battlesBtn">⚔️ Battles</button>
     <button class="btn ghost" id="apiKeyBtn">🔑 API Key Settings</button>
     <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
@@ -106,6 +113,7 @@ function renderHome(){
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
       If your browser blocks camera access, Upload a Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
+      Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
     </div>
   `;
   if(document.getElementById('installBtn')) document.getElementById('installBtn').onclick = handleInstall;
@@ -124,6 +132,7 @@ function renderHome(){
   });
 
   document.getElementById('customLibBtn').onclick = renderCustomLibrary;
+  document.getElementById('battlesBtn').onclick = renderBattleList;
   document.getElementById('apiKeyBtn').onclick = renderApiKeySettings;
 
   document.getElementById('manualBtn').onclick = () => {
@@ -555,6 +564,253 @@ async function renderApiKeySettings(){
   document.getElementById('settingsHomeBtn').onclick = renderHome;
 }
 
+// ---------- BATTLES ----------
+function formatBattleDate(dateStr){
+  if(!dateStr) return '';
+  try{
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+  }catch(e){ return dateStr; }
+}
+
+async function getBattleById(id){
+  const list = await loadBattles();
+  return list.find(b => b.id === id) || null;
+}
+
+async function createBattle(opponent, date){
+  const list = await loadBattles();
+  const battle = { id: 'battle_'+Date.now(), opponent, date, createdAt: Date.now(), myUnits: [], opponentUnits: [] };
+  list.unshift(battle);
+  await saveBattlesList(list);
+  return battle;
+}
+
+async function deleteBattle(battleId){
+  const list = await loadBattles();
+  await saveBattlesList(list.filter(b => b.id !== battleId));
+}
+
+// Stores a copy of the datasheet — not a reference to it — so a battle's
+// roster stays intact even if the same unit gets rescanned differently later.
+async function addUnitToBattle(battleId, team, unit){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return;
+  const entry = Object.assign({}, unit, { id: 'u_'+Date.now(), addedAt: Date.now() });
+  (team === 'my' ? battle.myUnits : battle.opponentUnits).push(entry);
+  await saveBattlesList(list);
+}
+
+async function removeUnitFromBattle(battleId, team, unitId){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return;
+  const key = team === 'my' ? 'myUnits' : 'opponentUnits';
+  battle[key] = battle[key].filter(u => u.id !== unitId);
+  await saveBattlesList(list);
+}
+
+// ---------- SCREEN: BATTLE LIST ----------
+async function renderBattleList(){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  currentBattleContext = null;
+  renderLoading('OPENING ARCHIVE', 'Loading your battles…');
+
+  const battles = await loadBattles();
+
+  const emptyNote = `<div class="noteBox">No battles logged yet. Start one to track which units you and your opponent bring to the table, with one tap back to any datasheet.</div>`;
+  const cards = battles.map(b => `
+    <div class="libCard" data-id="${b.id}">
+      <div class="libName">vs ${escapeHtml(b.opponent || 'Opponent')}</div>
+      <div class="libMeta">${escapeHtml(formatBattleDate(b.date))} · ${b.myUnits.length} vs ${b.opponentUnits.length} units</div>
+    </div>
+  `).join('');
+
+  main.innerHTML = `
+    ${battles.length ? '<div class="noteBox">Tap a battle to open it.</div>' + cards : emptyNote}
+    <button class="btn primary" id="newBattleBtn">+ New Battle</button>
+    <button class="btn ghost" id="battlesHomeBtn">🏠 Home</button>
+  `;
+
+  battles.forEach(b => {
+    const card = main.querySelector(`.libCard[data-id="${b.id}"]`);
+    if(card) card.addEventListener('click', () => renderBattleDetail(b.id));
+  });
+
+  document.getElementById('newBattleBtn').onclick = renderNewBattleForm;
+  document.getElementById('battlesHomeBtn').onclick = renderHome;
+}
+
+// ---------- SCREEN: NEW BATTLE ----------
+function renderNewBattleForm(){
+  setStatus('', 'STANDBY');
+  const today = new Date().toISOString().slice(0,10);
+  main.innerHTML = `
+    <div class="noteBox">Set up a new battle to track scans for both sides.</div>
+    <input type="text" id="opponentInput" placeholder="Opponent's name" />
+    <input type="date" id="dateInput" value="${today}" style="margin-top:8px;" />
+    <button class="btn primary" id="startBattleBtn" style="margin-top:12px;">⚔️ Start Battle</button>
+    <button class="btn ghost" id="cancelNewBattleBtn">✕ Cancel</button>
+  `;
+  document.getElementById('startBattleBtn').onclick = async () => {
+    const opponentInput = document.getElementById('opponentInput');
+    const opponent = opponentInput.value.trim();
+    if(!opponent){ opponentInput.focus(); return; }
+    const date = document.getElementById('dateInput').value || today;
+    const battle = await createBattle(opponent, date);
+    renderBattleDetail(battle.id);
+  };
+  document.getElementById('cancelNewBattleBtn').onclick = renderBattleList;
+}
+
+// ---------- SCREEN: BATTLE DETAIL ----------
+async function renderBattleDetail(battleId){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  currentBattleContext = null;
+  renderLoading('OPENING ARCHIVE', 'Loading battle…');
+
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+
+  const buildTeamHtml = (units, team) => {
+    if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
+    return units.map(u => `
+      <div class="libCard" data-unit="${u.id}" data-team="${team}">
+        <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `).join('');
+  };
+
+  main.innerHTML = `
+    <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
+    <div class="sectionTitle" style="padding:0 2px;">My Army (${battle.myUnits.length})</div>
+    ${buildTeamHtml(battle.myUnits, 'my')}
+    <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
+    ${buildTeamHtml(battle.opponentUnits, 'opponent')}
+    <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">📷 Scan a Unit</button>
+    <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
+    <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
+  `;
+
+  main.querySelectorAll('[data-unit]').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if(e.target.closest('[data-remove]')) return;
+      const unitId = card.getAttribute('data-unit');
+      const team = card.getAttribute('data-team');
+      const unit = (team === 'my' ? battle.myUnits : battle.opponentUnits).find(u => u.id === unitId);
+      if(unit) renderBattleUnitView(battle, unit);
+    });
+  });
+  main.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await removeUnitFromBattle(battleId, btn.getAttribute('data-remove-team'), btn.getAttribute('data-remove'));
+      renderBattleDetail(battleId);
+    });
+  });
+
+  document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
+  document.getElementById('deleteBattleBtn').onclick = () => renderDeleteBattleConfirm(battle);
+  document.getElementById('battleDetailHomeBtn').onclick = renderHome;
+}
+
+function renderDeleteBattleConfirm(battle){
+  main.innerHTML = `
+    <div class="errBox">
+      <div class="errTitle">Delete This Battle?</div>
+      This permanently deletes the battle vs ${escapeHtml(battle.opponent)} and all ${battle.myUnits.length + battle.opponentUnits.length} logged units. This can't be undone.
+    </div>
+    <button class="btn primary" id="confirmDeleteBattleBtn" style="margin-top:14px;">🗑 Yes, Delete It</button>
+    <button class="btn ghost" id="cancelDeleteBattleBtn">← Cancel</button>
+  `;
+  document.getElementById('confirmDeleteBattleBtn').onclick = async () => {
+    await deleteBattle(battle.id);
+    renderBattleList();
+  };
+  document.getElementById('cancelDeleteBattleBtn').onclick = () => renderBattleDetail(battle.id);
+}
+
+// ---------- SCREEN: BATTLE — WHO IS THIS SCAN FOR ----------
+async function renderBattleScanChoice(battleId){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  main.innerHTML = `
+    <div class="noteBox">Who is this scan for?</div>
+    <button class="btn primary" id="forMeBtn">🙋 My Army</button>
+    <button class="btn gold" id="forOpponentBtn">⚔️ ${escapeHtml(battle.opponent)}'s Army</button>
+    <button class="btn ghost" id="cancelScanChoiceBtn">← Cancel</button>
+  `;
+  document.getElementById('forMeBtn').onclick = () => {
+    currentBattleContext = { battleId, team:'my' };
+    renderBattleScanEntry(battleId, 'my');
+  };
+  document.getElementById('forOpponentBtn').onclick = () => {
+    currentBattleContext = { battleId, team:'opponent' };
+    renderBattleScanEntry(battleId, 'opponent');
+  };
+  document.getElementById('cancelScanChoiceBtn').onclick = () => renderBattleDetail(battleId);
+}
+
+// ---------- SCREEN: BATTLE SCAN ENTRY (camera/upload/search, battle-tagged) ----------
+async function renderBattleScanEntry(battleId, team){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  onPhotoReady = identifyFromImage;
+  onCameraCancel = () => renderBattleScanEntry(battleId, team);
+
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+
+  main.innerHTML = `
+    <div class="noteBox">Scanning for: <strong>${escapeHtml(teamLabel)}</strong></div>
+    <button class="btn primary" id="battleScanBtn">📷 Scan Miniature</button>
+    <button class="btn gold" id="battleUploadBtn">🖼 Upload a Photo</button>
+    <input type="file" id="battleFileInput" accept="image/*" style="display:none;" />
+    <div class="divider">or</div>
+    <input type="text" id="battleManualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
+    <button class="btn gold" id="battleManualBtn">🔎 Look Up Datasheet</button>
+    <button class="btn ghost" id="battleScanCancelBtn" style="margin-top:10px;">← Back to Battle</button>
+  `;
+  document.getElementById('battleScanBtn').onclick = openCamera;
+  document.getElementById('battleUploadBtn').onclick = () => {
+    document.getElementById('battleFileInput').click();
+  };
+  document.getElementById('battleFileInput').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => identifyFromImage(reader.result);
+    reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('battleManualBtn').onclick = () => {
+    const v = document.getElementById('battleManualInput').value.trim();
+    if(v) fetchDatasheet(v, '', 'direct');
+  };
+  document.getElementById('battleManualInput').addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ document.getElementById('battleManualBtn').click(); }
+  });
+  document.getElementById('battleScanCancelBtn').onclick = () => {
+    currentBattleContext = null;
+    renderBattleDetail(battleId);
+  };
+}
+
+// ---------- SCREEN: BATTLE — VIEW A SAVED UNIT (read-only) ----------
+function renderBattleUnitView(battle, unit){
+  setStatus('', 'STANDBY');
+  main.innerHTML = buildDatasheetSheetHtml(unit);
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn">← Back to Battle</button>`;
+  document.getElementById('unitBackBtn').onclick = () => renderBattleDetail(battle.id);
+}
+
 // ---------- SCREEN: CUSTOM MODEL LIBRARY ----------
 async function renderCustomLibrary(){
   clearFooter();
@@ -719,7 +975,7 @@ If the unit cannot be confidently found, instead respond with ONLY: {"error": "e
     if(isLight){
       renderConfirm(parsed);
     } else {
-      renderDatasheet(parsed);
+      await renderDatasheet(parsed);
     }
 
   }catch(err){
@@ -768,9 +1024,9 @@ function renderConfirm(d){
 }
 
 // ---------- SCREEN: DATASHEET ----------
-function renderDatasheet(d){
-  setStatus('', 'LINK ESTABLISHED');
-
+// Shared by the live datasheet screen and the read-only view of a unit
+// saved into a battle roster (renderBattleUnitView).
+function buildDatasheetSheetHtml(d){
   const abilitiesHtml = (d.abilities||[]).map(a=>`
     <div class="abilityItem">
       <div class="abilityName">${escapeHtml(a.name||'')}</div>
@@ -781,7 +1037,7 @@ function renderDatasheet(d){
   const keywordChips = (d.keywords||[]).map(k=>`<span class="chip">${escapeHtml(k)}</span>`).join('');
   const factionChips = (d.faction_keywords||[]).map(k=>`<span class="chip">${escapeHtml(k)}</span>`).join('');
 
-  main.innerHTML = `
+  return `
     <div class="sheet">
       <div class="sheetHead" style="position:relative;">
         <div class="sheetName">${escapeHtml(d.unit_name||'Unknown Unit')}</div>
@@ -809,16 +1065,54 @@ function renderDatasheet(d){
       <div class="noteBox">Stats and rules come from the AI's own knowledge, not a live lookup, and are paraphrased rather than quoted. Always confirm against your army's official app or GW source before a tournament.</div>
     </div>
   `;
+}
+
+async function renderDatasheet(d){
+  setStatus('', 'LINK ESTABLISHED');
+
+  // If this scan was started from a battle (see renderBattleScanChoice),
+  // save it into that side's roster and swap the footer for battle
+  // navigation instead of the normal Rescan/Other actions.
+  let battleNote = '';
+  const battleCtx = currentBattleContext;
+  let battle = null;
+  if(battleCtx){
+    battle = await getBattleById(battleCtx.battleId);
+    if(battle){
+      await addUnitToBattle(battleCtx.battleId, battleCtx.team, d);
+      const teamLabel = battleCtx.team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+      battleNote = `<div class="noteBox" style="border-bottom:1px dashed var(--iron); padding-bottom:12px;">✓ Added to <strong>${escapeHtml(teamLabel)}</strong> for this battle.</div>`;
+    } else {
+      currentBattleContext = null; // battle no longer exists (e.g. deleted mid-scan)
+    }
+  }
+
+  main.innerHTML = battleNote + buildDatasheetSheetHtml(d);
 
   footer.style.display = 'flex';
-  footer.innerHTML = `
-    <button class="btn ghost" id="homeFromSheet">🏠 Home</button>
-    <button class="btn ghost" id="scanAgain">📷 Rescan</button>
-    <button class="btn gold" id="searchAnother">🔎 Other</button>
-  `;
-  document.getElementById('homeFromSheet').onclick = renderHome;
-  document.getElementById('scanAgain').onclick = openCamera;
-  document.getElementById('searchAnother').onclick = renderManualSearch;
+  if(currentBattleContext){
+    const ctx = currentBattleContext;
+    footer.innerHTML = `
+      <button class="btn ghost" id="homeFromSheet">🏠 Home</button>
+      <button class="btn gold" id="scanMoreForBattle">📷 Scan Another</button>
+      <button class="btn primary" id="backToBattleBtn">⚔️ Battle</button>
+    `;
+    document.getElementById('homeFromSheet').onclick = renderHome;
+    document.getElementById('scanMoreForBattle').onclick = () => renderBattleScanEntry(ctx.battleId, ctx.team);
+    document.getElementById('backToBattleBtn').onclick = () => {
+      currentBattleContext = null;
+      renderBattleDetail(ctx.battleId);
+    };
+  } else {
+    footer.innerHTML = `
+      <button class="btn ghost" id="homeFromSheet">🏠 Home</button>
+      <button class="btn ghost" id="scanAgain">📷 Rescan</button>
+      <button class="btn gold" id="searchAnother">🔎 Other</button>
+    `;
+    document.getElementById('homeFromSheet').onclick = renderHome;
+    document.getElementById('scanAgain').onclick = openCamera;
+    document.getElementById('searchAnother').onclick = renderManualSearch;
+  }
 }
 
 function escapeHtml(str){

@@ -121,7 +121,7 @@ main{
 }
 .divider::before, .divider::after{content:""; flex:1; height:1px; background:var(--iron);}
 
-input[type=text]{
+input[type=text], input[type=password], input[type=date]{
   width:100%;
   padding:14px;
   background:var(--void);
@@ -130,8 +130,9 @@ input[type=text]{
   font-family:inherit;
   font-size:14px;
   letter-spacing:1px;
+  color-scheme:dark;
 }
-input[type=text]:focus{outline:2px solid var(--brass); outline-offset:1px;}
+input[type=text]:focus, input[type=password]:focus, input[type=date]:focus{outline:2px solid var(--brass); outline-offset:1px;}
 
 /* camera view */
 #camWrap{
