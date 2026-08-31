@@ -17,6 +17,43 @@ import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey,
 const VISION_MODEL = 'gemini-flash-latest';
 const TEXT_MODEL = 'gemini-flash-lite-latest';
 
+// Official points data, extracted from Games Workshop's own Munitorum Field
+// Manual PDF by .github/workflows/update-points.yml (see scripts/fetch-points.mjs)
+// and served as a static file alongside the app — no worker/Gemini call
+// involved. Preferred over the model's own points guess whenever a unit
+// matches, since GW's published points are authoritative and the model's
+// training data inevitably lags balance updates.
+let pointsDataPromise = null;
+function loadPointsData(){
+  if(!pointsDataPromise){
+    pointsDataPromise = fetch('/points-data.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return pointsDataPromise;
+}
+
+function normalizePointsName(name){
+  return (name||'').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+async function lookupOfficialPoints(unitName){
+  const data = await loadPointsData();
+  if(!data || !data.units) return null;
+  const key = normalizePointsName(unitName);
+  if(!key) return null;
+  if(data.units[key]) return data.units[key];
+  // Fall back to a substring match (e.g. "Chaos Defiler" vs manual's "Defiler")
+  const keys = Object.keys(data.units);
+  const hit = keys.find(k => k.length > 2 && (key.includes(k) || k.includes(key)));
+  return hit ? data.units[hit] : null;
+}
+
+function formatOfficialPoints(entry){
+  const raw = (entry.points || '').trim();
+  return /^\d+$/.test(raw) ? raw + ' pts' : raw;
+}
+
 const main = document.getElementById('main');
 const footer = document.getElementById('footer');
 const statusDot = document.getElementById('statusDot');
@@ -986,6 +1023,14 @@ If the unit itself cannot be confidently found, instead respond with ONLY: {"err
 
     if(parsed.error){
       throw new Error(parsed.error);
+    }
+
+    // Prefer GW's own published points over the model's guess whenever this
+    // unit is in the current Field Manual data (see loadPointsData above).
+    const official = await lookupOfficialPoints(parsed.unit_name);
+    if(official){
+      parsed.points = formatOfficialPoints(official);
+      parsed.points_uncertain = false;
     }
 
     if(isLight){
