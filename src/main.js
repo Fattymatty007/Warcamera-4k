@@ -962,17 +962,18 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
 If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
 
   try{
-    // No Google Search grounding here — answers come from the model's own
-    // trained knowledge. Grounding needs a billing-enabled Google Cloud
-    // project even within free-tier usage volume, which would mean every
-    // person using this app (not just its owner) has to attach a payment
-    // method before datasheet lookups work. Plain (non-grounded) requests
-    // stay on the free tier with no billing required, at the cost of
-    // possibly-stale stats if GW has issued a balance update since the
-    // model's training cutoff — the prompts above ask the model to say so
-    // via the error response rather than guess.
+    // Request Google Search grounding so stats reflect current balance
+    // updates, not just the model's training cutoff. Grounding needs a
+    // billing-enabled Google Cloud project even within free-tier usage
+    // volume — the worker tries this first, and if the key behind the
+    // request (owner's or a visitor's own) has no billing attached, it
+    // automatically retries the same request without grounding rather
+    // than erroring, so lookups keep working either way. The prompts
+    // above still ask the model to flag low confidence via the error
+    // response, as a safety net for that non-grounded fallback path.
     const data = await callGemini({
       contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
+      tools: [{ google_search: {} }],
       generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
     }, { model: TEXT_MODEL });
 

@@ -71,18 +71,34 @@ export default {
     // unchecked. Falls back to the default for anything absent or invalid.
     const requestedModel = request.headers.get('X-Gemini-Model');
     const model = (requestedModel && /^[a-zA-Z0-9_.-]+$/.test(requestedModel)) ? requestedModel : DEFAULT_MODEL;
+    const upstreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
+    let upstream = await fetch(upstreamUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body,
+    });
+
+    // Google Search grounding (see the `tools` param in src/main.js's
+    // datasheet-lookup calls, used so stats reflect recent balance updates
+    // instead of just the model's training cutoff) requires a billing-
+    // enabled Google Cloud project even within free-tier usage volume. A
+    // key without billing gets a 429/403 for the grounded call specifically
+    // — not a real outage — so retry once with `tools` stripped rather than
+    // surfacing that as a failure. This keeps lookups working for any
+    // visitor's free key, while a billed key (e.g. the worker owner's own)
+    // still gets grounded, current answers on the first attempt.
+    let parsedBody;
+    try { parsedBody = JSON.parse(body); } catch (e) { parsedBody = null; }
+
+    if (!upstream.ok && (upstream.status === 429 || upstream.status === 403) && parsedBody && parsedBody.tools) {
+      const { tools, ...bodyWithoutTools } = parsedBody;
+      upstream = await fetch(upstreamUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body,
-      },
-    );
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(bodyWithoutTools),
+      });
+    }
 
     const respBody = await upstream.text();
     return new Response(respBody, {
