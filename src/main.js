@@ -2,9 +2,20 @@ import './style.css';
 import { callGemini } from './api.js';
 import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList } from './storage.js';
 
-// The model itself is fixed in the Cloudflare Worker's request URL (see
-// worker/src/index.js) — not sent from here, since Gemini's endpoint is
-// per-model rather than taking a `model` field in the request body.
+// Two model tiers, picked per call via the X-Gemini-Model header (see
+// api.js / worker/src/index.js) rather than a fixed worker-side model.
+// Vision identification stays on the stronger default model — it already
+// had real accuracy issues telling visually similar miniatures apart, so
+// it's not a good place to trade capability for speed. Datasheet lookups
+// are plain text recall + JSON formatting, a much better fit for the
+// faster/cheaper Flash-Lite tier. gemini-flash-lite-latest is a best-effort
+// name — it follows the same "-latest" alias pattern already confirmed
+// working for gemini-flash-latest, but wasn't independently verified
+// against Google's docs (blocked from this environment) — if it 404s,
+// the fix is the same one we already did once: pull the exact model ID
+// from the cURL quickstart on the account's AI Studio API key page.
+const VISION_MODEL = 'gemini-flash-latest';
+const TEXT_MODEL = 'gemini-flash-lite-latest';
 
 const main = document.getElementById('main');
 const footer = document.getElementById('footer');
@@ -481,7 +492,7 @@ Give only your single best match, not a ranked list. Do not include any text out
     const data = await callGemini({
       contents: [{ role: 'user', parts }],
       generationConfig: { maxOutputTokens: 2000 },
-    });
+    }, { model: VISION_MODEL });
 
     const text = extractText(data);
     const parsed = parseJsonLoose(text);
@@ -963,7 +974,7 @@ If the unit cannot be confidently found, instead respond with ONLY: {"error": "e
     const data = await callGemini({
       contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
       generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
-    });
+    }, { model: TEXT_MODEL });
 
     const text = extractText(data);
     const parsed = parseJsonLoose(text);

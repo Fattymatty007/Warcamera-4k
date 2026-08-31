@@ -25,8 +25,11 @@
 // `gemini-flash-latest` always points at Google's current default Flash
 // model — confirmed against the cURL quickstart Google generates for this
 // account's own API key, since a pinned dated model name (e.g.
-// gemini-2.5-flash) can 404 once Google retires or renames it.
-const GEMINI_MODEL = 'gemini-flash-latest';
+// gemini-2.5-flash) can 404 once Google retires or renames it. Used as the
+// default when a request doesn't specify one via X-Gemini-Model (see
+// src/main.js — vision ID uses this default; the lighter/faster
+// datasheet-lookup calls request gemini-flash-lite-latest instead).
+const DEFAULT_MODEL = 'gemini-flash-latest';
 
 export default {
   async fetch(request, env) {
@@ -40,7 +43,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': allowOrigin,
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Gemini-User-Key',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Gemini-User-Key, X-Gemini-Model',
       'Vary': 'Origin',
     };
 
@@ -63,8 +66,14 @@ export default {
 
     const body = await request.text();
 
+    // Caller-selected model (see src/main.js) — validated against a strict
+    // charset since it goes straight into the URL path, not passed through
+    // unchecked. Falls back to the default for anything absent or invalid.
+    const requestedModel = request.headers.get('X-Gemini-Model');
+    const model = (requestedModel && /^[a-zA-Z0-9_.-]+$/.test(requestedModel)) ? requestedModel : DEFAULT_MODEL;
+
     const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: 'POST',
         headers: {

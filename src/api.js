@@ -10,7 +10,7 @@ import { loadUserApiKey } from './storage.js';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || '';
 
-export async function callGemini(body) {
+export async function callGemini(body, { model } = {}) {
   if (!WORKER_URL) {
     throw new Error('Scanner is not configured — no worker URL set (see SETUP.md)');
   }
@@ -21,6 +21,11 @@ export async function callGemini(body) {
   const userKey = await loadUserApiKey();
   const headers = { 'Content-Type': 'application/json' };
   if (userKey) headers['X-Gemini-User-Key'] = userKey;
+  // Optional per-call model override (see main.js) — e.g. the faster/
+  // cheaper Flash-Lite tier for text-only datasheet lookups, vs. the
+  // default for vision identification. Falls back to the worker's own
+  // default model when omitted.
+  if (model) headers['X-Gemini-Model'] = model;
 
   const res = await fetch(WORKER_URL, {
     method: 'POST',
