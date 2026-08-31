@@ -1,80 +1,39 @@
 #!/usr/bin/env node
-// Fetches the current official Warhammer 40,000 Munitorum Field Manual PDF
-// from Warhammer Community and extracts unit-name -> points-cost pairs into
-// public/points-data.json. The app fetches that file directly (same origin,
-// no worker/Gemini call involved) and prefers it over the model's own guess
-// whenever a unit matches, since GW's own published points are authoritative
-// and the model's training data inevitably lags balance updates.
+// Fetches current official Warhammer 40,000 points from Games Workshop's own
+// Munitorum Field Manual web app (mfm.warhammer-community.com) and extracts
+// unit-name -> points-cost pairs into public/points-data.json. The app
+// fetches that file directly (same origin, no worker/Gemini call involved)
+// and prefers it over the model's own guess whenever a unit matches, since
+// GW's own published points are authoritative and the model's training data
+// inevitably lags balance updates.
 //
 // Run by .github/workflows/update-points.yml on a schedule and via manual
-// dispatch. The PDF's exact table layout could only be inspected by actually
-// running this in CI — warhammer-community.com is unreachable from some dev
-// sandboxes — so the extraction heuristic below (extractUnits) is a
-// best-effort first pass; the verbose logging exists so a failed or
-// low-confidence run is diagnosable straight from the Action's log output
-// without needing to reproduce it locally.
+// dispatch. Two earlier real CI runs (this domain is unreachable from some
+// dev sandboxes, so it can only be inspected by actually running this in
+// CI) established: the landing page is a fully client-rendered Next.js app
+// with no usable link in its raw HTML at all — a headless browser is
+// required — and it isn't a single downloadable PDF, but a hub linking to
+// one rendered page per faction (e.g. /en/space-marines) that lists that
+// faction's units and points directly. The extraction heuristic below is a
+// best-effort first pass against real faction-page text; the verbose
+// logging exists so a low-confidence run is diagnosable from the Action's
+// log output without needing to reproduce it locally.
 import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const LANDING_URL = 'https://mfm.warhammer-community.com/en';
 
-// A plain fetch() of the landing page's HTML contains no ".pdf" substring
-// anywhere — confirmed against the real site via this script's own CI run,
-// since it's a fully client-rendered Next.js app that loads its download
-// link after hydration (not embedded in the initial payload at all, not
-// even in inline script data). A headless browser is the only reliable way
-// to see what a real visitor sees, so drive one instead of scraping raw HTML.
-async function findPdfUrl() {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage();
-    const seenPdfResponses = [];
-    page.on('response', (res) => {
-      if (/\.pdf(\?|$)/i.test(res.url())) seenPdfResponses.push(res.url());
-    });
-
-    await page.goto(LANDING_URL, { waitUntil: 'networkidle', timeout: 60000 });
-
-    // Strategy 1: a PDF response was fetched during load (e.g. prefetched,
-    // or opened in an embedded viewer).
-    if (seenPdfResponses.length > 0) {
-      console.log('PDF seen via network response:', seenPdfResponses);
-      return seenPdfResponses[0];
-    }
-
-    // Strategy 2: a rendered <a href> pointing at a PDF.
-    const hrefs = await page.$$eval('a[href]', (as) => as.map((a) => a.href));
-    const pdfHrefs = hrefs.filter((h) => /\.pdf(\?|$)/i.test(h));
-    if (pdfHrefs.length > 0) {
-      console.log('PDF link(s) found in rendered DOM:', pdfHrefs);
-      const best = pdfHrefs.find((u) => /munitorum|field.?manual/i.test(u)) || pdfHrefs[0];
-      return best;
-    }
-
-    // Nothing found — dump enough of the rendered page to diagnose from CI
-    // logs directly (this domain is unreachable from some dev sandboxes).
-    console.error('No PDF found via network responses or rendered <a href>. All links on the page:');
-    console.error(JSON.stringify(hrefs, null, 2));
-    const bodyText = await page.evaluate(() => document.body.innerText);
-    console.error('--- rendered page text (first 3000 chars) ---');
-    console.error(bodyText.slice(0, 3000));
-    throw new Error('Could not find the Field Manual PDF link on the rendered landing page — see the link/text dump above.');
-  } finally {
-    await browser.close();
-  }
-}
-
 function normalizeName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// Best-effort line-based extraction: a unit entry typically ends in one or
-// more numeric points values (optionally followed by "pts"/"points"), e.g.
-// "Intercessor Squad 80" or "Terminator Squad 190". Everything before the
-// first such trailing number run is taken as the unit name.
-function extractUnits(text) {
+// A unit line typically ends in one or more numeric points values
+// (optionally followed by "pts"/"points"), e.g. "Intercessor Squad 80" or
+// "Terminator Squad 190". Everything before the first such trailing number
+// run is taken as the unit name.
+function extractUnitsFromText(text) {
   const units = {};
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const lineRe = /^(.{2,80}?)\s+((?:\d{1,4}\s*(?:pts?\.?|points?)?\s*)+)$/i;
   for (const line of lines) {
     const m = line.match(lineRe);
@@ -90,39 +49,73 @@ function extractUnits(text) {
 }
 
 async function main() {
-  const pdfUrl = await findPdfUrl();
-  console.log('Found PDF URL:', pdfUrl);
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(LANDING_URL, { waitUntil: 'networkidle', timeout: 60000 });
 
-  const pdfRes = await fetch(pdfUrl);
-  if (!pdfRes.ok) throw new Error(`PDF fetch failed: ${pdfRes.status}`);
-  const buf = Buffer.from(await pdfRes.arrayBuffer());
-  console.log('Downloaded PDF, bytes:', buf.length);
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    const versionMatch = bodyText.match(/\bv(\d+(\.\d+)?)\b/i);
+    const version = versionMatch ? versionMatch[1] : null;
+    console.log('Detected MFM version string:', version);
 
-  const pdfParse = (await import('pdf-parse')).default;
-  const data = await pdfParse(buf);
-  console.log('Extracted text length:', data.text.length, 'pages:', data.numpages);
-  console.log('--- text sample (first 2000 chars) ---');
-  console.log(data.text.slice(0, 2000));
+    const factionLinks = await page.$$eval('a[href^="https://mfm.warhammer-community.com/en/"]', (as) =>
+      [...new Set(as.map((a) => a.href))].filter((h) => !/\/en\/?$/.test(h)),
+    );
+    console.log('Faction pages found:', factionLinks.length);
+    console.log(factionLinks);
 
-  const units = extractUnits(data.text);
-  const count = Object.keys(units).length;
-  console.log('Extracted unit entries:', count);
-  if (count < 20) {
-    console.error('Suspiciously few units extracted (' + count + ') — parsing heuristic likely needs tuning against the text sample above.');
+    if (factionLinks.length === 0) {
+      throw new Error('No faction sub-pages found on the landing page — its structure may have changed.');
+    }
+
+    const allUnits = {};
+    let firstPageDumped = false;
+
+    for (const url of factionLinks) {
+      const factionPage = await browser.newPage();
+      try {
+        await factionPage.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+        const text = await factionPage.evaluate(() => document.body.innerText);
+
+        if (!firstPageDumped) {
+          console.log(`--- rendered text sample from ${url} (first 3000 chars) ---`);
+          console.log(text.slice(0, 3000));
+          firstPageDumped = true;
+        }
+
+        const units = extractUnitsFromText(text);
+        const factionSlug = url.split('/').filter(Boolean).pop();
+        for (const [key, val] of Object.entries(units)) {
+          allUnits[key] = { ...val, faction: factionSlug };
+        }
+        console.log(`${url}: extracted ${Object.keys(units).length} units`);
+      } catch (err) {
+        console.error(`Failed on ${url}:`, err.message);
+      } finally {
+        await factionPage.close();
+      }
+    }
+
+    const count = Object.keys(allUnits).length;
+    console.log('Total extracted unit entries:', count);
+    if (count < 50) {
+      console.error(`Suspiciously few units extracted overall (${count}) — heuristic likely needs tuning against the text sample above.`);
+    }
+
+    const out = {
+      version,
+      sourceUrl: LANDING_URL,
+      updatedAt: new Date().toISOString(),
+      unitCount: count,
+      units: allUnits,
+    };
+
+    await writeFile(new URL('../public/points-data.json', import.meta.url), JSON.stringify(out, null, 2) + '\n');
+    console.log('Wrote public/points-data.json');
+  } finally {
+    await browser.close();
   }
-
-  const versionMatch = data.text.match(/version\s*(\d+(\.\d+)?)/i);
-
-  const out = {
-    version: versionMatch ? versionMatch[1] : null,
-    sourceUrl: pdfUrl,
-    updatedAt: new Date().toISOString(),
-    unitCount: count,
-    units,
-  };
-
-  await writeFile(new URL('../public/points-data.json', import.meta.url), JSON.stringify(out, null, 2) + '\n');
-  console.log('Wrote public/points-data.json');
 }
 
 main().catch((err) => {
