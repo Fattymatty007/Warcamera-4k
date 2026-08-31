@@ -59,8 +59,14 @@ async function main() {
     const version = versionMatch ? versionMatch[1] : null;
     console.log('Detected MFM version string:', version);
 
-    const factionLinks = await page.$$eval('a[href^="https://mfm.warhammer-community.com/en/"]', (as) =>
-      [...new Set(as.map((a) => a.href))].filter((h) => !/\/en\/?$/.test(h)),
+    // Anchor `href` attributes on this page are relative (e.g. "/en/space-marines"),
+    // so a CSS attribute-prefix selector against the absolute URL matches nothing —
+    // confirmed by the run right before this fix, which found 0 links this way even
+    // though the DOM's resolved `.href` property (used below) had them all along.
+    const factionLinks = await page.$$eval('a[href]', (as) =>
+      [...new Set(as.map((a) => a.href))].filter(
+        (h) => h.startsWith('https://mfm.warhammer-community.com/en/') && !/\/en\/?$/.test(h),
+      ),
     );
     console.log('Faction pages found:', factionLinks.length);
     console.log(factionLinks);
