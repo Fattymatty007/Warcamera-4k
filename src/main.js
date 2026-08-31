@@ -934,24 +934,26 @@ async function fetchDatasheet(unitName, faction, mode){
   const isLight = mode === 'confirm';
 
   const lightPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet stat line for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. This is a quick stat check, not the full datasheet.
-Only report numbers you're actually confident are accurate for this unit's current datasheet — do not guess or invent a number you're unsure of. Points values and rules do change with balance updates, so if you're not reasonably confident your knowledge is current, say so via the error response below rather than reporting a stale or made-up figure.
+Stats and weapon profiles matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every number reflects the very latest balance update. Points costs change far more often than stats and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value but prefix it with "~" and add "(may have changed)", e.g. "~80 pts (5 models, may have changed)" — never let uncertainty about points alone stop you from returning the rest of the datasheet.
+Only use the error response below if you cannot confidently identify the unit itself or its core stats — not merely because its points might be outdated.
 Respond with ONLY valid JSON, no markdown fences, no preamble, containing just the core stat line and weapons — nothing else:
 {
  "unit_name": "...",
  "faction": "...",
- "points": "e.g. 80 pts (5 models)",
+ "points": "e.g. 80 pts (5 models), or ~80 pts (5 models, may have changed) if unsure",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}]
 }
-Do not include unit_composition, abilities, or keyword lists — they aren't needed for this quick check. If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Do not include anything outside the JSON object.`;
+Do not include unit_composition, abilities, or keyword lists — they aren't needed for this quick check. If the unit itself cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Do not include anything outside the JSON object.`;
 
   const fullPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. Use the most current points and rules you know.
-Only report numbers and rules you're actually confident are accurate for this unit's current datasheet — do not guess or invent anything you're unsure of. Points values and rules do change with balance updates, so if you're not reasonably confident your knowledge is current for this unit, say so via the error response below rather than reporting a stale or made-up figure.
+Stats, weapon profiles, and abilities matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every detail reflects the very latest balance update. Points costs change far more often than the rest and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value but prefix it with "~" and add "(may have changed)", e.g. "~80 pts (5 models, may have changed)" — never let uncertainty about points alone stop you from returning the rest of the datasheet.
+Only use the error response below if you cannot confidently identify the unit itself or its core stats/weapons — not merely because its points might be outdated.
 Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
 {
  "unit_name": "...",
  "faction": "...",
- "points": "e.g. 80 pts (5 models)",
+ "points": "e.g. 80 pts (5 models), or ~80 pts (5 models, may have changed) if unsure",
  "unit_composition": "short plain text",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}],
@@ -959,7 +961,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
  "keywords": ["..."],
  "faction_keywords": ["..."]
 }
-If the unit cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
+If the unit itself cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
 
   try{
     // Request Google Search grounding so stats reflect current balance
