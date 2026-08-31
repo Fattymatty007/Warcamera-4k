@@ -14,47 +14,54 @@
 // low-confidence run is diagnosable straight from the Action's log output
 // without needing to reproduce it locally.
 import { writeFile } from 'node:fs/promises';
+import { chromium } from 'playwright';
 
 const LANDING_URL = 'https://mfm.warhammer-community.com/en';
 
+// A plain fetch() of the landing page's HTML contains no ".pdf" substring
+// anywhere — confirmed against the real site via this script's own CI run,
+// since it's a fully client-rendered Next.js app that loads its download
+// link after hydration (not embedded in the initial payload at all, not
+// even in inline script data). A headless browser is the only reliable way
+// to see what a real visitor sees, so drive one instead of scraping raw HTML.
 async function findPdfUrl() {
-  const res = await fetch(LANDING_URL, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; warcamera-4k-points-bot/1.0)' } });
-  if (!res.ok) throw new Error(`Landing page fetch failed: ${res.status}`);
-  const html = await res.text();
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const seenPdfResponses = [];
+    page.on('response', (res) => {
+      if (/\.pdf(\?|$)/i.test(res.url())) seenPdfResponses.push(res.url());
+    });
 
-  // The page is a client-rendered Next.js app, so a PDF link isn't
-  // necessarily a plain <a href> in the raw HTML fetched here — it may be
-  // embedded as an escaped URL string inside inline script/data payloads
-  // (e.g. Next.js flight data), possibly on a different asset domain than
-  // assumed. Search the whole document for any *.pdf URL rather than one
-  // fixed pattern, so this survives that kind of embedding.
-  const urlRe = /https?:\\?\/\\?\/[^"'\s)\\]+?\.pdf/gi;
-  const rawMatches = [...html.matchAll(urlRe)].map(m => m[0].replace(/\\\//g, '/'));
-  const matches = [...new Set(rawMatches)];
+    await page.goto(LANDING_URL, { waitUntil: 'networkidle', timeout: 60000 });
 
-  if (matches.length === 0) {
-    console.error('--- no .pdf URL found anywhere in the landing page. Contexts around every ".pdf" substring: ---');
-    let idx = html.toLowerCase().indexOf('.pdf');
-    let hits = 0;
-    while (idx !== -1 && hits < 10) {
-      console.error(html.slice(Math.max(0, idx - 200), idx + 20));
-      console.error('---');
-      idx = html.toLowerCase().indexOf('.pdf', idx + 1);
-      hits++;
+    // Strategy 1: a PDF response was fetched during load (e.g. prefetched,
+    // or opened in an embedded viewer).
+    if (seenPdfResponses.length > 0) {
+      console.log('PDF seen via network response:', seenPdfResponses);
+      return seenPdfResponses[0];
     }
-    if (hits === 0) {
-      console.error('(the substring ".pdf" does not appear in the fetched HTML at all — the PDF link is likely loaded via a separate API call this script does not know about yet)');
-      console.error('--- landing page HTML (first 4000 chars) ---');
-      console.error(html.slice(0, 4000));
+
+    // Strategy 2: a rendered <a href> pointing at a PDF.
+    const hrefs = await page.$$eval('a[href]', (as) => as.map((a) => a.href));
+    const pdfHrefs = hrefs.filter((h) => /\.pdf(\?|$)/i.test(h));
+    if (pdfHrefs.length > 0) {
+      console.log('PDF link(s) found in rendered DOM:', pdfHrefs);
+      const best = pdfHrefs.find((u) => /munitorum|field.?manual/i.test(u)) || pdfHrefs[0];
+      return best;
     }
-    throw new Error('Could not find a .pdf link on the MFM landing page — see contexts above to identify the real pattern/domain.');
+
+    // Nothing found — dump enough of the rendered page to diagnose from CI
+    // logs directly (this domain is unreachable from some dev sandboxes).
+    console.error('No PDF found via network responses or rendered <a href>. All links on the page:');
+    console.error(JSON.stringify(hrefs, null, 2));
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    console.error('--- rendered page text (first 3000 chars) ---');
+    console.error(bodyText.slice(0, 3000));
+    throw new Error('Could not find the Field Manual PDF link on the rendered landing page — see the link/text dump above.');
+  } finally {
+    await browser.close();
   }
-
-  console.log('Candidate PDF URLs found:', matches);
-  // Prefer one that looks like the actual field manual rather than an
-  // unrelated PDF elsewhere on the page.
-  const best = matches.find(u => /munitorum|field.?manual/i.test(u)) || matches[0];
-  return best;
 }
 
 function normalizeName(name) {

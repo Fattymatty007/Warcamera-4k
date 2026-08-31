@@ -19,7 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --no-save pdf-parse@1
+      - run: npm install --no-save pdf-parse@1 playwright@1
+      - run: npx playwright install --with-deps chromium
       - run: node scripts/fetch-points.mjs
       - name: Commit updated points data
         run: |
