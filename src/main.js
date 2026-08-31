@@ -934,26 +934,28 @@ async function fetchDatasheet(unitName, faction, mode){
   const isLight = mode === 'confirm';
 
   const lightPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet stat line for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. This is a quick stat check, not the full datasheet.
-Stats and weapon profiles matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every number reflects the very latest balance update. Points costs change far more often than stats and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value but prefix it with "~" and add "(may have changed)", e.g. "~80 pts (5 models, may have changed)" — never let uncertainty about points alone stop you from returning the rest of the datasheet.
+Stats and weapon profiles matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every number reflects the very latest balance update. Points costs change far more often than stats and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value as a plain clean value (no "~", no extra wording — just e.g. "80 pts (5 models)") and instead set "points_uncertain" to true so the app can flag it separately. Never let uncertainty about points alone stop you from returning the rest of the datasheet.
 Only use the error response below if you cannot confidently identify the unit itself or its core stats — not merely because its points might be outdated.
 Respond with ONLY valid JSON, no markdown fences, no preamble, containing just the core stat line and weapons — nothing else:
 {
  "unit_name": "...",
  "faction": "...",
- "points": "e.g. 80 pts (5 models), or ~80 pts (5 models, may have changed) if unsure",
+ "points": "e.g. 80 pts (5 models) — your best-known value, plain text, no annotation",
+ "points_uncertain": false,
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}]
 }
 Do not include unit_composition, abilities, or keyword lists — they aren't needed for this quick check. If the unit itself cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Do not include anything outside the JSON object.`;
 
   const fullPrompt = `Give the current Warhammer 40,000 (10th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. Use the most current points and rules you know.
-Stats, weapon profiles, and abilities matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every detail reflects the very latest balance update. Points costs change far more often than the rest and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value but prefix it with "~" and add "(may have changed)", e.g. "~80 pts (5 models, may have changed)" — never let uncertainty about points alone stop you from returning the rest of the datasheet.
+Stats, weapon profiles, and abilities matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every detail reflects the very latest balance update. Points costs change far more often than the rest and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value as a plain clean value (no "~", no extra wording — just e.g. "80 pts (5 models)") and instead set "points_uncertain" to true so the app can flag it separately. Never let uncertainty about points alone stop you from returning the rest of the datasheet.
 Only use the error response below if you cannot confidently identify the unit itself or its core stats/weapons — not merely because its points might be outdated.
 Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
 {
  "unit_name": "...",
  "faction": "...",
- "points": "e.g. 80 pts (5 models), or ~80 pts (5 models, may have changed) if unsure",
+ "points": "e.g. 80 pts (5 models) — your best-known value, plain text, no annotation",
+ "points_uncertain": false,
  "unit_composition": "short plain text",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}],
@@ -1056,7 +1058,7 @@ function buildDatasheetSheetHtml(d){
       <div class="sheetHead" style="position:relative;">
         <div class="sheetName">${escapeHtml(d.unit_name||'Unknown Unit')}</div>
         <div class="sheetFaction">${escapeHtml(d.faction||'')}</div>
-        <div class="sheetPoints">${escapeHtml(d.points||'')}</div>
+        <div class="sheetPoints">${escapeHtml(d.points||'')}${d.points_uncertain ? '<span class="ptsFlag">*</span>' : ''}</div>
       </div>
 
       ${buildStatGridHtml(d.stats)}
@@ -1076,6 +1078,7 @@ function buildDatasheetSheetHtml(d){
         <div class="chips">${keywordChips}${factionChips}</div>
       </div>` : ''}
 
+      ${d.points_uncertain ? `<div class="noteBox">* Points cost may have changed since a recent balance update — verify before a tournament.</div>` : ''}
       <div class="noteBox">Stats and rules come from the AI's own knowledge, not a live lookup, and are paraphrased rather than quoted. Always confirm against your army's official app or GW source before a tournament.</div>
     </div>
   `;
