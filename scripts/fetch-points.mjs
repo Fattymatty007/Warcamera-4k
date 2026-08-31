@@ -21,13 +21,40 @@ async function findPdfUrl() {
   const res = await fetch(LANDING_URL, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; warcamera-4k-points-bot/1.0)' } });
   if (!res.ok) throw new Error(`Landing page fetch failed: ${res.status}`);
   const html = await res.text();
-  const match = html.match(/https:\/\/assets\.warhammer-community\.com\/[^"'\s)]+\.pdf/i);
-  if (!match) {
-    console.error('--- landing page HTML (first 3000 chars) ---');
-    console.error(html.slice(0, 3000));
-    throw new Error('Could not find a .pdf link on the MFM landing page — its structure may have changed. See HTML dump above.');
+
+  // The page is a client-rendered Next.js app, so a PDF link isn't
+  // necessarily a plain <a href> in the raw HTML fetched here — it may be
+  // embedded as an escaped URL string inside inline script/data payloads
+  // (e.g. Next.js flight data), possibly on a different asset domain than
+  // assumed. Search the whole document for any *.pdf URL rather than one
+  // fixed pattern, so this survives that kind of embedding.
+  const urlRe = /https?:\\?\/\\?\/[^"'\s)\\]+?\.pdf/gi;
+  const rawMatches = [...html.matchAll(urlRe)].map(m => m[0].replace(/\\\//g, '/'));
+  const matches = [...new Set(rawMatches)];
+
+  if (matches.length === 0) {
+    console.error('--- no .pdf URL found anywhere in the landing page. Contexts around every ".pdf" substring: ---');
+    let idx = html.toLowerCase().indexOf('.pdf');
+    let hits = 0;
+    while (idx !== -1 && hits < 10) {
+      console.error(html.slice(Math.max(0, idx - 200), idx + 20));
+      console.error('---');
+      idx = html.toLowerCase().indexOf('.pdf', idx + 1);
+      hits++;
+    }
+    if (hits === 0) {
+      console.error('(the substring ".pdf" does not appear in the fetched HTML at all — the PDF link is likely loaded via a separate API call this script does not know about yet)');
+      console.error('--- landing page HTML (first 4000 chars) ---');
+      console.error(html.slice(0, 4000));
+    }
+    throw new Error('Could not find a .pdf link on the MFM landing page — see contexts above to identify the real pattern/domain.');
   }
-  return match[0];
+
+  console.log('Candidate PDF URLs found:', matches);
+  // Prefer one that looks like the actual field manual rather than an
+  // unrelated PDF elsewhere on the page.
+  const best = matches.find(u => /munitorum|field.?manual/i.test(u)) || matches[0];
+  return best;
 }
 
 function normalizeName(name) {
