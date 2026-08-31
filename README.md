@@ -1,4 +1,4 @@
-# Auspex Scanner (WarCamera 4K)
+# WarCamera 4k
 
 Point your camera at a Warhammer 40,000 miniature, get an AI best-guess at
 which unit it is, then pull that unit's stat line, weapons, and abilities

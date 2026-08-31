@@ -1,6 +1,6 @@
 # Setup: Cloudflare Worker + GitHub Pages
 
-Auspex Scanner needs three things before it's a real, working, installable
+WarCamera 4k needs three things before it's a real, working, installable
 app: a Gemini API key, a small Cloudflare Worker that holds that key and
 proxies requests (so the browser never sees it), and GitHub Pages wired up
 the same way as Dinner Bell / In Stock. Do these in order.
@@ -94,7 +94,7 @@ In the `mattsapps` repo's `index.html`, add a card to the `APPS` array:
 
 ```js
 {
-  name: 'Auspex Scanner',
+  name: 'WarCamera 4k',
   url: 'https://warcamera.mattsapps.xyz',
   tagline: 'Scan a mini, get its datasheet',
 },

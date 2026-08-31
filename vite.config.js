@@ -7,8 +7,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
-        name: 'Auspex Scanner',
-        short_name: 'Auspex',
+        name: 'WarCamera 4k',
+        short_name: 'WarCamera',
         description: 'Unit cogitator and datasheet retrieval for tabletop miniatures',
         id: '/',
         start_url: '/',

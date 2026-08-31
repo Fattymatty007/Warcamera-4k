@@ -74,7 +74,7 @@ function showManualInstallModal(){
   overlay.className = 'modalOverlay';
   overlay.innerHTML = `
     <div class="modalCard">
-      <div class="modalTitle">Install Auspex Scanner</div>
+      <div class="modalTitle">Install WarCamera 4k</div>
       <div class="modalBody">${escapeHtml(body)}</div>
       <button class="btn primary" id="modalGotIt" style="margin-top:14px;">Got It</button>
     </div>
@@ -178,7 +178,7 @@ function renderCameraPrime(){
   main.innerHTML = `
     <div class="errBox" style="border-color:var(--brass); background:rgba(194,147,47,0.08);">
       <div class="errTitle" style="color:var(--brass);">Camera Access Needed</div>
-      Auspex Scanner needs permission to use your camera to photograph miniatures.
+      WarCamera 4k needs permission to use your camera to photograph miniatures.
       Tap below, then choose <strong>Allow</strong> when your browser asks.
     </div>
     <button class="btn primary" id="enableCamBtn" style="margin-top:16px;">📷 Enable Camera Access</button>
@@ -288,7 +288,7 @@ function renderCameraUnsupported(){
 function renderCameraError(err){
   main.innerHTML = `
     <div class="errBox">
-      <div class="errTitle">Auspex Link Failed</div>
+      <div class="errTitle">WarCamera Link Failed</div>
       Something went wrong starting the camera (${err && err.message ? escapeHtml(err.message) : 'unknown error'}).
       You can still search for a unit by name below.
     </div>
@@ -563,7 +563,7 @@ async function renderCustomLibrary(){
 
   const list = await loadCustomModels();
 
-  const emptyNote = `<div class="noteBox">No custom models yet. Register a conversion or proxy here — Auspex will recognize its photo on future scans and jump straight to the datasheet you assign it.</div>`;
+  const emptyNote = `<div class="noteBox">No custom models yet. Register a conversion or proxy here — WarCamera 4k will recognize its photo on future scans and jump straight to the datasheet you assign it.</div>`;
   const cards = list.map(m => `
     <div class="libCard" data-id="${m.id}">
       <img class="libThumb" src="${m.thumb}" alt="${escapeHtml(m.label)}"/>
@@ -603,7 +603,7 @@ async function renderCustomLibrary(){
 function renderAddCustomChooser(){
   setStatus('', 'STANDBY');
   main.innerHTML = `
-    <div class="noteBox">Snap or upload a photo of your model, then tell Auspex which unit it represents.</div>
+    <div class="noteBox">Snap or upload a photo of your model, then tell WarCamera 4k which unit it represents.</div>
     <button class="btn primary" id="customCamBtn">📷 Take Photo</button>
     <button class="btn gold" id="customUploadBtn">🖼 Upload Photo</button>
     <input type="file" id="customFileInput" accept="image/*" style="display:none;" />
