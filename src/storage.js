@@ -65,3 +65,26 @@ export async function saveBattlesList(list) {
     console.error('Failed to save battles', e);
   }
 }
+
+// A personal library of full datasheets, independent of any single battle —
+// save a scan once, then reopen it or drop it into any battle roster later
+// without rescanning the same physical miniature again.
+const COLLECTION_KEY = 'warcamera-collection';
+
+export async function loadCollection() {
+  try {
+    const raw = localStorage.getItem(COLLECTION_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error('Failed to load collection', e);
+    return [];
+  }
+}
+
+export async function saveCollectionList(list) {
+  try {
+    localStorage.setItem(COLLECTION_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error('Failed to save collection', e);
+  }
+}

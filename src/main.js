@@ -1,6 +1,6 @@
 import './style.css';
 import { callGemini } from './api.js';
-import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList } from './storage.js';
+import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList } from './storage.js';
 
 // Two model tiers, picked per call via the X-Gemini-Model header (see
 // api.js / worker/src/index.js) rather than a fixed worker-side model.
@@ -150,6 +150,7 @@ function renderHome(){
     <button class="btn gold" id="uploadBtn">🖼 Upload a Photo</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none;" />
     <button class="btn ghost" id="customLibBtn">📋 My Custom Models</button>
+    <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
     <button class="btn ghost" id="battlesBtn">⚔️ Battles</button>
     <button class="btn ghost" id="apiKeyBtn">🔑 API Key Settings</button>
     <div class="divider">or</div>
@@ -161,6 +162,7 @@ function renderHome(){
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
       If your browser blocks camera access, Upload a Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
+      Scanned a unit before? Save it to My Collection from its datasheet screen, then reopen it or add it straight into a battle roster with no rescanning.
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
     </div>
   `;
@@ -180,6 +182,7 @@ function renderHome(){
   });
 
   document.getElementById('customLibBtn').onclick = renderCustomLibrary;
+  document.getElementById('collectionBtn').onclick = renderCollectionList;
   document.getElementById('battlesBtn').onclick = renderBattleList;
   document.getElementById('apiKeyBtn').onclick = renderApiKeySettings;
 
@@ -658,6 +661,23 @@ async function removeUnitFromBattle(battleId, team, unitId){
   await saveBattlesList(list);
 }
 
+// ---------- COLLECTION (saved units, reusable across battles) ----------
+// A datasheet saved here is a standalone copy, same pattern as a battle
+// roster entry — reopening or adding it to a battle never needs another
+// Gemini call, so the same physical miniature only ever gets scanned once.
+async function addUnitToCollection(unit){
+  const list = await loadCollection();
+  const entry = Object.assign({}, unit, { id: 'c_'+Date.now(), savedAt: Date.now() });
+  list.unshift(entry);
+  await saveCollectionList(list);
+  return entry;
+}
+
+async function removeUnitFromCollection(unitId){
+  const list = await loadCollection();
+  await saveCollectionList(list.filter(u => u.id !== unitId));
+}
+
 // ---------- SCREEN: BATTLE LIST ----------
 async function renderBattleList(){
   clearFooter();
@@ -823,6 +843,7 @@ async function renderBattleScanEntry(battleId, team){
     <div class="divider">or</div>
     <input type="text" id="battleManualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
     <button class="btn gold" id="battleManualBtn">🔎 Look Up Datasheet</button>
+    <button class="btn ghost" id="battleFromCollectionBtn" style="margin-top:10px;">📚 Add From My Collection</button>
     <button class="btn ghost" id="battleScanCancelBtn" style="margin-top:10px;">← Back to Battle</button>
   `;
   document.getElementById('battleScanBtn').onclick = openCamera;
@@ -844,10 +865,44 @@ async function renderBattleScanEntry(battleId, team){
   document.getElementById('battleManualInput').addEventListener('keydown', e=>{
     if(e.key==='Enter'){ document.getElementById('battleManualBtn').click(); }
   });
+  document.getElementById('battleFromCollectionBtn').onclick = () => renderBattleCollectionPicker(battleId, team);
   document.getElementById('battleScanCancelBtn').onclick = () => {
     currentBattleContext = null;
     renderBattleDetail(battleId);
   };
+}
+
+// ---------- SCREEN: BATTLE — ADD FROM SAVED COLLECTION (no rescanning) ----------
+async function renderBattleCollectionPicker(battleId, team){
+  setStatus('', 'STANDBY');
+  const [battle, list] = await Promise.all([getBattleById(battleId), loadCollection()]);
+  if(!battle){ renderBattleList(); return; }
+  const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+
+  const emptyNote = `<div class="noteBox">Your collection is empty. Open any datasheet and tap "Save to My Collection" first, then it'll show up here for future battles.</div>`;
+  const cards = list.map(u => `
+    <div class="libCard" data-id="${u.id}">
+      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+    </div>
+  `).join('');
+
+  main.innerHTML = `
+    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Tap a saved unit to add it instantly — no rescanning needed.</div>
+    ${list.length ? cards : emptyNote}
+    <button class="btn ghost" id="collPickerBackBtn" style="margin-top:10px;">← Back</button>
+  `;
+
+  list.forEach(u => {
+    const card = main.querySelector(`.libCard[data-id="${u.id}"]`);
+    if(card){
+      card.addEventListener('click', async () => {
+        currentBattleContext = { battleId, team };
+        await renderDatasheet(u);
+      });
+    }
+  });
+  document.getElementById('collPickerBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
 }
 
 // ---------- SCREEN: BATTLE — VIEW A SAVED UNIT (read-only) ----------
@@ -857,6 +912,57 @@ function renderBattleUnitView(battle, unit){
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="unitBackBtn">← Back to Battle</button>`;
   document.getElementById('unitBackBtn').onclick = () => renderBattleDetail(battle.id);
+}
+
+// ---------- SCREEN: MY COLLECTION ----------
+async function renderCollectionList(){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  currentBattleContext = null;
+  renderLoading('OPENING ARCHIVE', 'Loading your collection…');
+
+  const list = await loadCollection();
+
+  const emptyNote = `<div class="noteBox">No saved units yet. Open any datasheet and tap "Save to My Collection" to keep it here — reopen it anytime, or add it straight into a battle without rescanning.</div>`;
+  const cards = list.map(u => `
+    <div class="libCard" data-id="${u.id}">
+      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+      <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+    </div>
+  `).join('');
+
+  main.innerHTML = `
+    ${list.length ? '<div class="noteBox">Tap a saved unit to reopen its datasheet.</div>' + cards : emptyNote}
+    <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
+  `;
+
+  list.forEach(u => {
+    const card = main.querySelector(`.libCard[data-id="${u.id}"]`);
+    if(card){
+      card.addEventListener('click', (e) => {
+        if(e.target.closest('[data-del]')) return;
+        renderCollectionUnitView(u);
+      });
+    }
+  });
+  main.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await removeUnitFromCollection(btn.getAttribute('data-del'));
+      renderCollectionList();
+    });
+  });
+
+  document.getElementById('collectionHomeBtn').onclick = renderHome;
+}
+
+function renderCollectionUnitView(unit){
+  setStatus('', 'STANDBY');
+  main.innerHTML = buildDatasheetSheetHtml(unit);
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn">← Back to Collection</button>`;
+  document.getElementById('collUnitBackBtn').onclick = renderCollectionList;
 }
 
 // ---------- SCREEN: CUSTOM MODEL LIBRARY ----------
@@ -1149,7 +1255,14 @@ async function renderDatasheet(d){
     }
   }
 
-  main.innerHTML = battleNote + buildDatasheetSheetHtml(d);
+  main.innerHTML = battleNote + buildDatasheetSheetHtml(d) +
+    `<button class="btn gold" id="saveToCollectionBtn" style="margin-top:12px;">💾 Save to My Collection</button>`;
+  document.getElementById('saveToCollectionBtn').onclick = async (e) => {
+    await addUnitToCollection(d);
+    const btn = e.currentTarget;
+    btn.textContent = '✓ Saved to My Collection';
+    btn.disabled = true;
+  };
 
   footer.style.display = 'flex';
   if(currentBattleContext){
