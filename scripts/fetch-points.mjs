@@ -27,23 +27,55 @@ function normalizeName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// A unit line typically ends in one or more numeric points values
-// (optionally followed by "pts"/"points"), e.g. "Intercessor Squad 80" or
-// "Terminator Squad 190". Everything before the first such trailing number
-// run is taken as the unit name.
+// Real page structure (confirmed against actual rendered text from CI —
+// this domain is unreachable from some dev sandboxes, so it could only be
+// inspected by running this in CI): each unit is a block, not a single
+// line —
+//   UNIT NAME
+//   YOUR UNIT COSTS            (or "YOUR 1ST TO 2ND UNITS COST", etc. —
+//   3 models                    a unit can have several of these tiers,
+//   50 pts                      each followed by one or more model-count/
+//   10 models                   points pairs)
+//   140 pts
+//   LEADER                     (optional attachment info, ignored)
+//   BATTLE SISTERS SQUAD, ...
+// The unit name is reliably the line immediately before its first
+// "YOUR ... COST(S)" header; wargear-option lines ("per Meltagun" / "5 pts")
+// never appear directly before such a header, so they're never mistaken
+// for a unit's own cost pair by the model-count/points pairing below.
 function extractUnitsFromText(text) {
   const units = {};
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const lineRe = /^(.{2,80}?)\s+((?:\d{1,4}\s*(?:pts?\.?|points?)?\s*)+)$/i;
-  for (const line of lines) {
-    const m = line.match(lineRe);
-    if (!m) continue;
-    const rawName = m[1].trim();
-    const pointsText = m[2].trim();
-    if (!/[a-zA-Z]/.test(rawName) || rawName.length < 2) continue;
-    const key = normalizeName(rawName);
-    if (!key) continue;
-    units[key] = { displayName: rawName, points: pointsText };
+  const costHeaderRe = /^YOUR\b.*\bCOSTS?$/i;
+  const modelsRe = /^(\d+)\s+models?$/i;
+  const ptsRe = /^(\d+)\s*pts?\.?$/i;
+
+  let i = 0;
+  while (i < lines.length) {
+    if (!costHeaderRe.test(lines[i])) {
+      i++;
+      continue;
+    }
+    const rawName = i > 0 ? lines[i - 1] : null;
+    i++; // past the header
+    const sizeCosts = [];
+    while (i < lines.length) {
+      const modelsMatch = lines[i].match(modelsRe);
+      if (modelsMatch && lines[i + 1] && ptsRe.test(lines[i + 1])) {
+        const modelsCount = modelsMatch[1];
+        const pts = lines[i + 1].match(ptsRe)[1];
+        sizeCosts.push(`${pts} pts (${modelsCount} model${modelsCount === '1' ? '' : 's'})`);
+        i += 2;
+      } else if (costHeaderRe.test(lines[i])) {
+        i++; // another tier of the same unit — keep collecting pairs
+      } else {
+        break;
+      }
+    }
+    if (rawName && sizeCosts.length > 0 && !costHeaderRe.test(rawName)) {
+      const key = normalizeName(rawName);
+      if (key) units[key] = { displayName: rawName, points: sizeCosts.join(' / ') };
+    }
   }
   return units;
 }
