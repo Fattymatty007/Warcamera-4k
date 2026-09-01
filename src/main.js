@@ -1,4 +1,6 @@
 import './style.css';
+import QRCode from 'qrcode';
+import jsQR from 'jsqr';
 import { callGemini } from './api.js';
 import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList } from './storage.js';
 
@@ -757,8 +759,10 @@ async function renderBattleDetail(battleId){
     <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
     <div class="sectionTitle" style="padding:0 2px;">My Army (${battle.myUnits.length})</div>
     ${buildTeamHtml(battle.myUnits, 'my')}
+    ${battle.myUnits.length ? '<button class="btn ghost" id="shareMyQrBtn" style="margin-top:6px;">📤 Share My Army as QR</button>' : ''}
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
     ${buildTeamHtml(battle.opponentUnits, 'opponent')}
+    ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">📷 Scan a Unit</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
@@ -784,6 +788,8 @@ async function renderBattleDetail(battleId){
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
   document.getElementById('deleteBattleBtn').onclick = () => renderDeleteBattleConfirm(battle);
   document.getElementById('battleDetailHomeBtn').onclick = renderHome;
+  if(document.getElementById('shareMyQrBtn')) document.getElementById('shareMyQrBtn').onclick = () => renderShareRosterQr(battleId, 'my');
+  if(document.getElementById('shareOppQrBtn')) document.getElementById('shareOppQrBtn').onclick = () => renderShareRosterQr(battleId, 'opponent');
 }
 
 function renderDeleteBattleConfirm(battle){
@@ -844,6 +850,7 @@ async function renderBattleScanEntry(battleId, team){
     <input type="text" id="battleManualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
     <button class="btn gold" id="battleManualBtn">🔎 Look Up Datasheet</button>
     <button class="btn ghost" id="battleFromCollectionBtn" style="margin-top:10px;">📚 Add From My Collection</button>
+    <button class="btn ghost" id="battleImportQrBtn">🔳 Import Roster via QR</button>
     <button class="btn ghost" id="battleScanCancelBtn" style="margin-top:10px;">← Back to Battle</button>
   `;
   document.getElementById('battleScanBtn').onclick = openCamera;
@@ -866,6 +873,7 @@ async function renderBattleScanEntry(battleId, team){
     if(e.key==='Enter'){ document.getElementById('battleManualBtn').click(); }
   });
   document.getElementById('battleFromCollectionBtn').onclick = () => renderBattleCollectionPicker(battleId, team);
+  document.getElementById('battleImportQrBtn').onclick = () => renderImportQrScan(battleId, team);
   document.getElementById('battleScanCancelBtn').onclick = () => {
     currentBattleContext = null;
     renderBattleDetail(battleId);
@@ -903,6 +911,199 @@ async function renderBattleCollectionPicker(battleId, team){
     }
   });
   document.getElementById('collPickerBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
+}
+
+// ---------- ROSTER SHARING VIA QR CODE ----------
+// The QR payload only carries unit name + faction, not full datasheets —
+// a QR code has a hard capacity limit (a few KB at most), and a battle's
+// worth of full stat blocks/abilities text can easily exceed that, while
+// a name+faction pair per unit stays tiny even for a large army. The
+// importing side re-looks up each unit (same as typing it into Search by
+// Name), so this trades a few automatic Gemini calls for never being able
+// to fail on QR size or on stale embedded stats.
+async function renderShareRosterQr(battleId, team){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const units = team === 'my' ? battle.myUnits : battle.opponentUnits;
+  const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+
+  const payload = JSON.stringify({ v: 1, u: units.map(u => ({ n: u.unit_name, f: u.faction || '' })) });
+
+  let qrDataUrl;
+  try{
+    qrDataUrl = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'L', margin: 1, width: 280 });
+  }catch(err){
+    main.innerHTML = `
+      <div class="errBox">
+        <div class="errTitle">Couldn't Generate QR Code</div>
+        ${escapeHtml(err.message || 'This roster may be too large for a single QR code.')}
+      </div>
+      <button class="btn ghost" id="qrGenBackBtn" style="margin-top:14px;">← Back</button>
+    `;
+    document.getElementById('qrGenBackBtn').onclick = () => renderBattleDetail(battleId);
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="noteBox">Have your opponent open <strong>Battles → Scan a Unit → Import Roster via QR</strong> and point their camera at this code to pull in ${units.length} unit${units.length===1?'':'s'} from <strong>${escapeHtml(teamLabel)}</strong> — no rescanning needed on their end. Each unit gets freshly looked up on import, same as searching it by name.</div>
+    <div style="display:flex; justify-content:center; padding:16px 0;">
+      <img src="${qrDataUrl}" alt="Roster QR code" style="width:100%; max-width:280px; border-radius:4px;"/>
+    </div>
+    <button class="btn ghost" id="qrDoneBtn">← Back to Battle</button>
+  `;
+  document.getElementById('qrDoneBtn').onclick = () => renderBattleDetail(battleId);
+}
+
+let qrScanRAF = null;
+let qrScanStream = null;
+
+function stopQrScan(){
+  if(qrScanRAF){ cancelAnimationFrame(qrScanRAF); qrScanRAF = null; }
+  if(qrScanStream){ qrScanStream.getTracks().forEach(t=>t.stop()); qrScanStream = null; }
+}
+
+// ---------- SCREEN: BATTLE — IMPORT ROSTER VIA QR (camera scan) ----------
+async function renderImportQrScan(battleId, team){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  stopQrScan();
+
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    main.innerHTML = `
+      <div class="errBox">
+        <div class="errTitle">Camera Not Available Here</div>
+        QR import needs camera access, which isn't available in this browser/environment.
+      </div>
+      <button class="btn ghost" id="qrScanBackBtn">← Back</button>
+    `;
+    document.getElementById('qrScanBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="noteBox">Point your camera at your opponent's roster QR code.</div>
+    <div id="camWrap">
+      <video id="qrVideo" autoplay playsinline muted></video>
+      <div class="reticle">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+      </div>
+    </div>
+    <canvas id="qrCanvas" style="display:none;"></canvas>
+    <button class="btn ghost" id="qrScanCancelBtn" style="margin-top:14px;">← Cancel</button>
+  `;
+  document.getElementById('qrScanCancelBtn').onclick = () => { stopQrScan(); renderBattleScanEntry(battleId, team); };
+
+  try{
+    qrScanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' }, audio:false });
+  }catch(err){
+    main.innerHTML = `
+      <div class="errBox">
+        <div class="errTitle">Camera Access Failed</div>
+        ${escapeHtml(err.message || 'Could not access the camera.')}
+      </div>
+      <button class="btn ghost" id="qrScanBackBtn2" style="margin-top:14px;">← Back</button>
+    `;
+    document.getElementById('qrScanBackBtn2').onclick = () => renderBattleScanEntry(battleId, team);
+    return;
+  }
+
+  const video = document.getElementById('qrVideo');
+  video.srcObject = qrScanStream;
+  const canvas = document.getElementById('qrCanvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  const scanFrame = () => {
+    if(video.readyState === video.HAVE_ENOUGH_DATA){
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      let imageData = null;
+      try{ imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); }catch(e){ /* frame not ready */ }
+      if(imageData){
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if(code && code.data){
+          stopQrScan();
+          handleScannedRosterPayload(battleId, team, code.data);
+          return;
+        }
+      }
+    }
+    qrScanRAF = requestAnimationFrame(scanFrame);
+  };
+  qrScanRAF = requestAnimationFrame(scanFrame);
+}
+
+function handleScannedRosterPayload(battleId, team, raw){
+  let parsed = null;
+  try{ parsed = JSON.parse(raw); }catch(e){ /* not JSON */ }
+  if(!parsed || !Array.isArray(parsed.u) || !parsed.u.length){
+    main.innerHTML = `
+      <div class="errBox">
+        <div class="errTitle">Not a WarCamera Roster Code</div>
+        That QR code doesn't look like a WarCamera 4k roster export.
+      </div>
+      <button class="btn primary" id="qrRetryBtn" style="margin-top:14px;">↺ Try Again</button>
+      <button class="btn ghost" id="qrCancelBtn2">← Cancel</button>
+    `;
+    document.getElementById('qrRetryBtn').onclick = () => renderImportQrScan(battleId, team);
+    document.getElementById('qrCancelBtn2').onclick = () => renderBattleScanEntry(battleId, team);
+    return;
+  }
+  renderImportConfirm(battleId, team, parsed.u);
+}
+
+async function renderImportConfirm(battleId, team, units){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+
+  const cards = units.map(u => `
+    <div class="libCard">
+      <div class="libName">${escapeHtml(u.n || 'Unknown Unit')}</div>
+      ${u.f ? `<div class="libMeta">${escapeHtml(u.f)}</div>` : ''}
+    </div>
+  `).join('');
+
+  main.innerHTML = `
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}. Import into <strong>${escapeHtml(teamLabel)}</strong>? Each one gets freshly looked up, same as a name search.</div>
+    ${cards}
+    <button class="btn primary" id="confirmImportBtn" style="margin-top:14px;">✓ Import ${units.length} Unit${units.length===1?'':'s'}</button>
+    <button class="btn ghost" id="cancelImportBtn">✕ Cancel</button>
+  `;
+  document.getElementById('confirmImportBtn').onclick = () => runRosterImport(battleId, team, units);
+  document.getElementById('cancelImportBtn').onclick = () => renderBattleScanEntry(battleId, team);
+}
+
+async function runRosterImport(battleId, team, units){
+  setStatus('busy', 'IMPORTING');
+  let succeeded = 0;
+  const failed = [];
+  for(let i=0;i<units.length;i++){
+    renderLoading('IMPORTING ROSTER', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
+    try{
+      const d = await lookupDatasheetRaw(units[i].n, units[i].f || '', false);
+      await addUnitToBattle(battleId, team, d);
+      succeeded++;
+    }catch(err){
+      failed.push(units[i].n);
+    }
+  }
+  setStatus('', 'LINK ESTABLISHED');
+  renderImportSummary(battleId, succeeded, failed);
+}
+
+function renderImportSummary(battleId, succeeded, failed){
+  main.innerHTML = `
+    <div class="noteBox">Imported ${succeeded} unit${succeeded===1?'':'s'} into the battle.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <button class="btn primary" id="importDoneBtn">⚔️ View Battle</button>
+  `;
+  document.getElementById('importDoneBtn').onclick = () => renderBattleDetail(battleId);
 }
 
 // ---------- SCREEN: BATTLE — VIEW A SAVED UNIT (read-only) ----------
@@ -1069,13 +1270,12 @@ function renderCustomModelForm(thumb){
 // ---------- PHASE 2: STAT LOOKUP ----------
 // mode: 'direct' renders the full datasheet immediately (manual search).
 // mode: 'confirm' shows a quick stat-check screen first (photo ID path).
-async function fetchDatasheet(unitName, faction, mode){
-  mode = mode || 'direct';
-  setStatus('busy', 'RETRIEVING');
-  renderLoading('CONSULTING ARCHIVES', `Pulling ${mode === 'confirm' ? 'quick stats' : 'full datasheet'} for ${unitName}…`);
-
-  const isLight = mode === 'confirm';
-
+// Core network lookup — builds the prompt, calls Gemini, parses the result,
+// and applies the official-points override. Returns the parsed datasheet or
+// throws. Pulled out of fetchDatasheet() so the QR roster import flow (see
+// runRosterImport) can reuse the exact same lookup headlessly, without any
+// of fetchDatasheet's own loading/confirm/error screen rendering.
+async function lookupDatasheetRaw(unitName, faction, isLight){
   const lightPrompt = `Give the current Warhammer 40,000 (11th edition) datasheet stat line for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. This is a quick stat check, not the full datasheet.
 Stats and weapon profiles matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every number reflects the very latest balance update. Points costs change far more often than stats and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value as a plain clean value (no "~", no extra wording — just e.g. "80 pts (5 models)") and instead set "points_uncertain" to true so the app can flag it separately. Never let uncertainty about points alone stop you from returning the rest of the datasheet.
 Only use the error response below if you cannot confidently identify the unit itself or its core stats — not merely because its points might be outdated.
@@ -1108,43 +1308,53 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
 }
 If the unit itself cannot be confidently found, instead respond with ONLY: {"error": "explanation"}. Paraphrase all rules text — never copy Games Workshop's wording directly. Do not include anything outside the JSON object.`;
 
+  // Request Google Search grounding so stats reflect current balance
+  // updates, not just the model's training cutoff. Grounding needs a
+  // billing-enabled Google Cloud project even within free-tier usage
+  // volume — the worker tries this first, and if the key behind the
+  // request (owner's or a visitor's own) has no billing attached, it
+  // automatically retries the same request without grounding rather
+  // than erroring, so lookups keep working either way. The prompts
+  // above still ask the model to flag low confidence via the error
+  // response, as a safety net for that non-grounded fallback path.
+  const data = await callGemini({
+    contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
+  }, { model: TEXT_MODEL });
+
+  const text = extractText(data);
+  const parsed = parseJsonLoose(text);
+
+  if(parsed.error){
+    throw new Error(parsed.error);
+  }
+
+  // Prefer GW's own published points over the model's guess whenever this
+  // unit is in the current Field Manual data (see loadPointsData above).
+  const official = await lookupOfficialPoints(parsed.unit_name);
+  if(official){
+    parsed.points = formatOfficialPoints(official);
+    parsed.points_uncertain = false;
+  }
+
+  return parsed;
+}
+
+async function fetchDatasheet(unitName, faction, mode){
+  mode = mode || 'direct';
+  setStatus('busy', 'RETRIEVING');
+  renderLoading('CONSULTING ARCHIVES', `Pulling ${mode === 'confirm' ? 'quick stats' : 'full datasheet'} for ${unitName}…`);
+
+  const isLight = mode === 'confirm';
+
   try{
-    // Request Google Search grounding so stats reflect current balance
-    // updates, not just the model's training cutoff. Grounding needs a
-    // billing-enabled Google Cloud project even within free-tier usage
-    // volume — the worker tries this first, and if the key behind the
-    // request (owner's or a visitor's own) has no billing attached, it
-    // automatically retries the same request without grounding rather
-    // than erroring, so lookups keep working either way. The prompts
-    // above still ask the model to flag low confidence via the error
-    // response, as a safety net for that non-grounded fallback path.
-    const data = await callGemini({
-      contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
-      tools: [{ google_search: {} }],
-      generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
-    }, { model: TEXT_MODEL });
-
-    const text = extractText(data);
-    const parsed = parseJsonLoose(text);
-
-    if(parsed.error){
-      throw new Error(parsed.error);
-    }
-
-    // Prefer GW's own published points over the model's guess whenever this
-    // unit is in the current Field Manual data (see loadPointsData above).
-    const official = await lookupOfficialPoints(parsed.unit_name);
-    if(official){
-      parsed.points = formatOfficialPoints(official);
-      parsed.points_uncertain = false;
-    }
-
+    const parsed = await lookupDatasheetRaw(unitName, faction, isLight);
     if(isLight){
       renderConfirm(parsed);
     } else {
       await renderDatasheet(parsed);
     }
-
   }catch(err){
     renderLookupError(err, unitName, mode);
   }
