@@ -115,6 +115,15 @@ main{
 .btn.gold{border-color:var(--brass); color:var(--brass);}
 .btn:disabled{opacity:.4; cursor:not-allowed;}
 
+.detailsToggle{
+  align-self:center;
+  background:none; border:none; clip-path:none;
+  padding:4px 8px;
+  font-family:inherit; font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
+  color:var(--muted); cursor:pointer;
+}
+.detailsToggle:active{transform:scale(0.98);}
+
 .divider{
   display:flex; align-items:center; gap:10px;
   color:var(--muted); font-size:10px; letter-spacing:3px; text-transform:uppercase;

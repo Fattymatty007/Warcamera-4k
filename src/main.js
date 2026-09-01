@@ -158,7 +158,7 @@ function renderHome(){
     <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
-    <button class="btn ghost" id="detailsToggleBtn">▾ Show App Details</button>
+    <button class="detailsToggle" id="detailsToggleBtn">▾ Show App Details</button>
     <div class="noteBox" id="appDetailsBox" hidden>
       Visual identification is AI best-effort — paint jobs, conversions and unpainted models reduce accuracy.
       You'll be able to confirm or correct the result before stats are pulled up.
