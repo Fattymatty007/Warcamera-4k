@@ -158,7 +158,8 @@ function renderHome(){
     <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
-    <div class="noteBox">
+    <button class="btn ghost" id="detailsToggleBtn">▾ Show App Details</button>
+    <div class="noteBox" id="appDetailsBox" hidden>
       Visual identification is AI best-effort — paint jobs, conversions and unpainted models reduce accuracy.
       You'll be able to confirm or correct the result before stats are pulled up.
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
@@ -168,6 +169,12 @@ function renderHome(){
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
     </div>
   `;
+  document.getElementById('detailsToggleBtn').onclick = () => {
+    const box = document.getElementById('appDetailsBox');
+    const btn = document.getElementById('detailsToggleBtn');
+    box.hidden = !box.hidden;
+    btn.textContent = box.hidden ? '▾ Show App Details' : '▴ Hide App Details';
+  };
   if(document.getElementById('installBtn')) document.getElementById('installBtn').onclick = handleInstall;
   document.getElementById('scanBtn').onclick = openCamera;
 
