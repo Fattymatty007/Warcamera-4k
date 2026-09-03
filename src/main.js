@@ -429,7 +429,9 @@ function renderPasteListScreen(){
 // anything is added.
 function parseArmyListText(text){
   const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|\d+\s*x\b|[•\-*▪◦›»])/i;
-  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*\((\d{1,4})\s*(?:pts?|points)\)\s*$/i;
+  // Brackets and parentheses are treated as interchangeable — some list
+  // apps export "Unit Name [100 pts]" instead of "Unit Name (100 pts)".
+  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*$/i;
   const wargearSectionRe = /^wargear options?:?$/i;
   // An all-caps line that ISN'T itself a priced unit header is a section
   // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
