@@ -130,7 +130,7 @@ main{
 }
 .divider::before, .divider::after{content:""; flex:1; height:1px; background:var(--iron);}
 
-input[type=text], input[type=password], input[type=date]{
+input[type=text], input[type=password], input[type=date], textarea{
   width:100%;
   padding:14px;
   background:var(--void);
@@ -141,7 +141,9 @@ input[type=text], input[type=password], input[type=date]{
   letter-spacing:1px;
   color-scheme:dark;
 }
-input[type=text]:focus, input[type=password]:focus, input[type=date]:focus{outline:2px solid var(--brass); outline-offset:1px;}
+input[type=text]:focus, input[type=password]:focus, input[type=date]:focus, textarea:focus{outline:2px solid var(--brass); outline-offset:1px;}
+textarea{resize:vertical; min-height:160px; letter-spacing:normal; line-height:1.4;}
+textarea::placeholder{font-style:italic; color:var(--muted);}
 
 /* camera view */
 #camWrap{

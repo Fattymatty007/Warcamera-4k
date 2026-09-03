@@ -163,7 +163,7 @@ function renderHome(){
       You'll be able to confirm or correct the result before stats are pulled up.
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
       If your browser blocks camera access, Upload → A Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
-      Already built a list in an army builder app? Upload → An Army List File to pull in every unit from a plain-text export at once, after confirming what was found.
+      Already built a list in an army builder app? Upload → Paste an Army List to pull in every unit from a plain-text export at once, after confirming what was found.
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
       Scanned a unit before? Save it to My Collection from its datasheet screen, then reopen it or add it straight into a battle roster with no rescanning.
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
@@ -374,15 +374,14 @@ function capturePhoto(){
   (onPhotoReady || identifyFromImage)(photo);
 }
 
-// ---------- SCREEN: UPLOAD (photo or army list file) ----------
+// ---------- SCREEN: UPLOAD (photo or pasted army list) ----------
 function renderUploadChooser(){
   setStatus('', 'STANDBY');
   main.innerHTML = `
     <div class="noteBox">What would you like to upload?</div>
     <button class="btn gold" id="uploadPhotoBtn">🖼 A Photo of a Miniature</button>
-    <button class="btn gold" id="uploadListBtn">📋 An Army List File</button>
+    <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
     <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
-    <input type="file" id="uploadListInput" accept=".txt,.csv,.text,text/plain" style="display:none;" />
     <button class="btn ghost" id="uploadChooserCancelBtn">← Cancel</button>
   `;
   document.getElementById('uploadPhotoBtn').onclick = () => {
@@ -396,18 +395,24 @@ function renderUploadChooser(){
     reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
     reader.readAsDataURL(file);
   });
-  document.getElementById('uploadListBtn').onclick = () => {
-    document.getElementById('uploadListInput').click();
-  };
-  document.getElementById('uploadListInput').addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = () => handleArmyListFile(reader.result, file.name);
-    reader.onerror = () => renderArmyListParseError('Could not read that file.');
-    reader.readAsText(file);
-  });
+  document.getElementById('uploadListBtn').onclick = renderPasteListScreen;
   document.getElementById('uploadChooserCancelBtn').onclick = renderHome;
+}
+
+function renderPasteListScreen(){
+  setStatus('', 'STANDBY');
+  main.innerHTML = `
+    <div class="noteBox">Paste a plain-text export from your army builder app below.</div>
+    <textarea id="pasteListInput" placeholder="Please paste Text List here."></textarea>
+    <button class="btn gold" id="parsePastedListBtn" style="margin-top:10px;">📋 Find Units in This List</button>
+    <button class="btn ghost" id="pasteListCancelBtn">← Cancel</button>
+  `;
+  document.getElementById('parsePastedListBtn').onclick = () => {
+    const text = document.getElementById('pasteListInput').value;
+    if(!text.trim()) return;
+    handleArmyListFile(text, '');
+  };
+  document.getElementById('pasteListCancelBtn').onclick = renderUploadChooser;
 }
 
 // Best-effort, format-agnostic army-list parser. Every army builder export
@@ -416,10 +421,12 @@ function renderUploadChooser(){
 // "Plague Marines (80 pts)" — since that's the one convention basically
 // universal across list formats, unlike everything else about their layout
 // (indentation, section headers, bullet styles all vary). Wargear/enhancement
-// sub-lines are excluded by a prefix blocklist rather than indentation,
-// since indentation itself isn't consistent between exporters either. This
-// is inherently approximate, which is exactly why the result always goes
-// through a confirm screen with per-unit checkboxes before anything is added.
+// sub-lines are excluded by a prefix blocklist, plus indentation as a
+// secondary signal for the one common shape that blocklist alone can't
+// catch (see wargear-block tracking below). This is inherently
+// approximate — export formats vary — which is exactly why the result
+// always goes through a confirm screen with per-unit checkboxes before
+// anything is added.
 function parseArmyListText(text){
   const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|\d+\s*x\b|[•\-*▪◦›»])/i;
   const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*\((\d{1,4})\s*(?:pts?|points)\)\s*$/i;
@@ -432,13 +439,19 @@ function parseArmyListText(text){
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
   // lines right after an explicit "Wargear Options:" label, with no bullet
   // to distinguish them from a real unit header — track that block so
-  // those don't get mistaken for units of their own (a blank line or the
-  // next section label ends it, same as most exporters lay it out).
+  // those don't get mistaken for units of their own. A blank line or the
+  // next section label always ends it; so does dropping back to the same
+  // (or shallower) indentation as the label line, which catches the next
+  // real unit header even when it follows immediately with no blank line
+  // or section break in between.
   let inWargearBlock = false;
+  let wargearIndent = 0;
   for(const rawLine of text.split(/\r?\n/)){
+    const indent = rawLine.match(/^[ \t]*/)[0].length;
     const line = rawLine.trim();
     if(!line){ inWargearBlock = false; continue; }
-    if(wargearSectionRe.test(line)){ inWargearBlock = true; continue; }
+    if(inWargearBlock && indent < wargearIndent) inWargearBlock = false;
+    if(wargearSectionRe.test(line)){ inWargearBlock = true; wargearIndent = indent; continue; }
     if(sectionLabelRe.test(line) && !headerRe.test(line)){ inWargearBlock = false; continue; }
     if(skipPrefixRe.test(line)) continue;
     const m = line.match(headerRe);
@@ -453,10 +466,10 @@ function parseArmyListText(text){
   return units;
 }
 
-function handleArmyListFile(text, filename){
+function handleArmyListFile(text){
   const units = parseArmyListText(text);
   if(!units.length){
-    renderArmyListParseError(`Didn't recognize any units in "${filename || 'that file'}".`);
+    renderArmyListParseError(`Didn't recognize any units in that list.`);
     return;
   }
   renderArmyListConfirm(units);
@@ -466,11 +479,13 @@ function renderArmyListParseError(message){
   main.innerHTML = `
     <div class="errBox">
       <div class="errTitle">Couldn't Read That List</div>
-      ${escapeHtml(message)} WarCamera looks for lines shaped like "Unit Name (NNN pts)" — the convention most army-builder plain-text exports use. Try a plain-text/.txt export if your app offers one.
+      ${escapeHtml(message)} WarCamera looks for lines shaped like "Unit Name (NNN pts)" — the convention most army-builder plain-text exports use.
     </div>
-    <button class="btn ghost" id="listErrBackBtn" style="margin-top:14px;">← Back</button>
+    <button class="btn primary" id="listErrRetryBtn" style="margin-top:14px;">↺ Try Again</button>
+    <button class="btn ghost" id="listErrBackBtn">← Home</button>
   `;
-  document.getElementById('listErrBackBtn').onclick = renderUploadChooser;
+  document.getElementById('listErrRetryBtn').onclick = renderPasteListScreen;
+  document.getElementById('listErrBackBtn').onclick = renderHome;
 }
 
 function renderArmyListConfirm(units){
