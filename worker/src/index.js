@@ -73,31 +73,46 @@ export default {
     const model = (requestedModel && /^[a-zA-Z0-9_.-]+$/.test(requestedModel)) ? requestedModel : DEFAULT_MODEL;
     const upstreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    let upstream = await fetch(upstreamUrl, {
+    const callUpstream = (sendBody) => fetch(upstreamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body,
+      body: sendBody,
     });
+
+    let parsedBody;
+    try { parsedBody = JSON.parse(body); } catch (e) { parsedBody = null; }
+    const hasTools = !!(parsedBody && parsedBody.tools);
+    const strippedBody = hasTools ? JSON.stringify((({ tools, ...rest }) => rest)(parsedBody)) : body;
+    const isByok = !!request.headers.get('X-Gemini-User-Key');
 
     // Google Search grounding (see the `tools` param in src/main.js's
     // datasheet-lookup calls, used so stats reflect recent balance updates
     // instead of just the model's training cutoff) requires a billing-
     // enabled Google Cloud project even within free-tier usage volume. A
-    // key without billing gets a 429/403 for the grounded call specifically
-    // — not a real outage — so retry once with `tools` stripped rather than
-    // surfacing that as a failure. This keeps lookups working for any
-    // visitor's free key, while a billed key (e.g. the worker owner's own)
-    // still gets grounded, current answers on the first attempt.
-    let parsedBody;
-    try { parsedBody = JSON.parse(body); } catch (e) { parsedBody = null; }
+    // visitor's own key (the whole point of "bring your own key" is a free
+    // key with no billing attached) will predictably fail the grounded call
+    // and cost a wasted request against their often-tight free-tier rate
+    // limit — skip straight to the non-grounded request for BYOK rather
+    // than spending that call. The worker owner's own key (assumed billed,
+    // since that's what made grounding work at all) still tries grounded
+    // first, falling back to non-grounded only if that specific call comes
+    // back 429/403.
+    let sendBody = (isByok && hasTools) ? strippedBody : body;
+    let upstream = await callUpstream(sendBody);
 
-    if (!upstream.ok && (upstream.status === 429 || upstream.status === 403) && parsedBody && parsedBody.tools) {
-      const { tools, ...bodyWithoutTools } = parsedBody;
-      upstream = await fetch(upstreamUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(bodyWithoutTools),
-      });
+    if (!upstream.ok && (upstream.status === 429 || upstream.status === 403) && hasTools && sendBody === body) {
+      sendBody = strippedBody;
+      upstream = await callUpstream(sendBody);
+    }
+
+    // A 429 can be a transient rate-limit blip rather than a real outage —
+    // common right after adding a fresh key and testing it a few times in
+    // quick succession, since free-tier keys often allow only a handful of
+    // requests per minute. One short retry with the same key/body costs
+    // nothing extra (same quota, just delayed) and often succeeds.
+    if (!upstream.ok && upstream.status === 429) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      upstream = await callUpstream(sendBody);
     }
 
     const respBody = await upstream.text();

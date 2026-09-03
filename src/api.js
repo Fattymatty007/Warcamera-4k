@@ -41,6 +41,19 @@ export async function callGemini(body, { model } = {}) {
       const errJson = await res.json();
       detail = errJson?.error?.message || '';
     } catch (e) { /* body wasn't JSON — fall back to bare status */ }
+    // The worker already retries once on a 429 before giving up (see
+    // worker/src/index.js), so a 429 reaching here means that retry didn't
+    // clear it — most often a free-tier key's per-minute limit, which is
+    // much tighter than the shared/billed worker key's. Call this out
+    // specifically for a visitor's own key, since "API error 429" alone
+    // reads like the app is broken rather than a quota they can just wait out.
+    if (res.status === 429) {
+      throw new Error(
+        (userKey ? 'Your API key' : 'This key') +
+        ' hit Google’s rate limit' + (detail ? ' (' + detail + ')' : '') +
+        ' — free-tier keys allow only a few requests per minute. Wait a bit and try again.'
+      );
+    }
     throw new Error('API error ' + res.status + (detail ? ': ' + detail : ''));
   }
   return res.json();
