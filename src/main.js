@@ -149,8 +149,7 @@ function renderHome(){
   main.innerHTML = `
     ${canInstall() ? '<button class="btn gold" id="installBtn">⬇ Install App</button>' : ''}
     <button class="btn primary" id="scanBtn">📷 Scan Miniature</button>
-    <button class="btn gold" id="uploadBtn">🖼 Upload a Photo</button>
-    <input type="file" id="fileInput" accept="image/*" style="display:none;" />
+    <button class="btn gold" id="uploadBtn">📤 Upload</button>
     <button class="btn ghost" id="customLibBtn">📋 My Custom Models</button>
     <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
     <button class="btn ghost" id="battlesBtn">⚔️ Battles</button>
@@ -163,7 +162,8 @@ function renderHome(){
       Visual identification is AI best-effort — paint jobs, conversions and unpainted models reduce accuracy.
       You'll be able to confirm or correct the result before stats are pulled up.
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
-      If your browser blocks camera access, Upload a Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
+      If your browser blocks camera access, Upload → A Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
+      Already built a list in an army builder app? Upload → An Army List File to pull in every unit from a plain-text export at once, after confirming what was found.
       Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
       Scanned a unit before? Save it to My Collection from its datasheet screen, then reopen it or add it straight into a battle roster with no rescanning.
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
@@ -178,17 +178,7 @@ function renderHome(){
   if(document.getElementById('installBtn')) document.getElementById('installBtn').onclick = handleInstall;
   document.getElementById('scanBtn').onclick = openCamera;
 
-  document.getElementById('uploadBtn').onclick = () => {
-    document.getElementById('fileInput').click();
-  };
-  document.getElementById('fileInput').addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = () => identifyFromImage(reader.result);
-    reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
-    reader.readAsDataURL(file);
-  });
+  document.getElementById('uploadBtn').onclick = renderUploadChooser;
 
   document.getElementById('customLibBtn').onclick = renderCustomLibrary;
   document.getElementById('collectionBtn').onclick = renderCollectionList;
@@ -382,6 +372,151 @@ function capturePhoto(){
   const photo = canvas.toDataURL('image/jpeg', 0.85);
   stopCamera();
   (onPhotoReady || identifyFromImage)(photo);
+}
+
+// ---------- SCREEN: UPLOAD (photo or army list file) ----------
+function renderUploadChooser(){
+  setStatus('', 'STANDBY');
+  main.innerHTML = `
+    <div class="noteBox">What would you like to upload?</div>
+    <button class="btn gold" id="uploadPhotoBtn">🖼 A Photo of a Miniature</button>
+    <button class="btn gold" id="uploadListBtn">📋 An Army List File</button>
+    <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
+    <input type="file" id="uploadListInput" accept=".txt,.csv,.text,text/plain" style="display:none;" />
+    <button class="btn ghost" id="uploadChooserCancelBtn">← Cancel</button>
+  `;
+  document.getElementById('uploadPhotoBtn').onclick = () => {
+    document.getElementById('uploadPhotoInput').click();
+  };
+  document.getElementById('uploadPhotoInput').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => identifyFromImage(reader.result);
+    reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('uploadListBtn').onclick = () => {
+    document.getElementById('uploadListInput').click();
+  };
+  document.getElementById('uploadListInput').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => handleArmyListFile(reader.result, file.name);
+    reader.onerror = () => renderArmyListParseError('Could not read that file.');
+    reader.readAsText(file);
+  });
+  document.getElementById('uploadChooserCancelBtn').onclick = renderHome;
+}
+
+// Best-effort, format-agnostic army-list parser. Every army builder export
+// we're aware of (BattleScribe, NewRecruit, WTC, GW's own app) shows each
+// unit's name immediately followed by its points cost in parentheses — e.g.
+// "Plague Marines (80 pts)" — since that's the one convention basically
+// universal across list formats, unlike everything else about their layout
+// (indentation, section headers, bullet styles all vary). Wargear/enhancement
+// sub-lines are excluded by a prefix blocklist rather than indentation,
+// since indentation itself isn't consistent between exporters either. This
+// is inherently approximate, which is exactly why the result always goes
+// through a confirm screen with per-unit checkboxes before anything is added.
+function parseArmyListText(text){
+  const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|\d+\s*x\b|[•\-*▪◦›»])/i;
+  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*\((\d{1,4})\s*(?:pts?|points)\)\s*$/i;
+  const wargearSectionRe = /^wargear options?:?$/i;
+  // An all-caps line that ISN'T itself a priced unit header is a section
+  // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
+  const sectionLabelRe = /^[A-Z][A-Z \/&'-]{2,40}$/;
+  const seen = new Set();
+  const units = [];
+  // Many exporters list a unit's optional wargear as bare "Name (N pts)"
+  // lines right after an explicit "Wargear Options:" label, with no bullet
+  // to distinguish them from a real unit header — track that block so
+  // those don't get mistaken for units of their own (a blank line or the
+  // next section label ends it, same as most exporters lay it out).
+  let inWargearBlock = false;
+  for(const rawLine of text.split(/\r?\n/)){
+    const line = rawLine.trim();
+    if(!line){ inWargearBlock = false; continue; }
+    if(wargearSectionRe.test(line)){ inWargearBlock = true; continue; }
+    if(sectionLabelRe.test(line) && !headerRe.test(line)){ inWargearBlock = false; continue; }
+    if(skipPrefixRe.test(line)) continue;
+    const m = line.match(headerRe);
+    if(!m || inWargearBlock) continue;
+    const name = m[1].trim().replace(/\s{2,}/g, ' ');
+    if(!name) continue;
+    const key = name.toLowerCase();
+    if(seen.has(key)) continue;
+    seen.add(key);
+    units.push({ n: name });
+  }
+  return units;
+}
+
+function handleArmyListFile(text, filename){
+  const units = parseArmyListText(text);
+  if(!units.length){
+    renderArmyListParseError(`Didn't recognize any units in "${filename || 'that file'}".`);
+    return;
+  }
+  renderArmyListConfirm(units);
+}
+
+function renderArmyListParseError(message){
+  main.innerHTML = `
+    <div class="errBox">
+      <div class="errTitle">Couldn't Read That List</div>
+      ${escapeHtml(message)} WarCamera looks for lines shaped like "Unit Name (NNN pts)" — the convention most army-builder plain-text exports use. Try a plain-text/.txt export if your app offers one.
+    </div>
+    <button class="btn ghost" id="listErrBackBtn" style="margin-top:14px;">← Back</button>
+  `;
+  document.getElementById('listErrBackBtn').onclick = renderUploadChooser;
+}
+
+function renderArmyListConfirm(units){
+  setStatus('', 'STANDBY');
+  const rows = units.map((u, i) => `
+    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+      <input type="checkbox" class="listUnitCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
+      <span class="libName" style="margin:0;">${escapeHtml(u.n)}</span>
+    </label>
+  `).join('');
+  main.innerHTML = `
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right, then add the rest to My Collection — each one gets freshly looked up, same as a name search.</div>
+    ${rows}
+    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Add Selected to My Collection</button>
+    <button class="btn ghost" id="cancelListImportBtn">✕ Cancel</button>
+  `;
+  document.getElementById('confirmListImportBtn').onclick = () => {
+    const selected = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
+    if(!selected.length) return;
+    runArmyListImport(selected);
+  };
+  document.getElementById('cancelListImportBtn').onclick = renderHome;
+}
+
+async function runArmyListImport(units){
+  setStatus('busy', 'IMPORTING');
+  let succeeded = 0;
+  const failed = [];
+  for(let i=0;i<units.length;i++){
+    renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
+    try{
+      const d = await lookupDatasheetRaw(units[i].n, '', false);
+      await addUnitToCollection(d);
+      succeeded++;
+    }catch(err){
+      failed.push(units[i].n);
+    }
+  }
+  setStatus('', 'LINK ESTABLISHED');
+  main.innerHTML = `
+    <div class="noteBox">Added ${succeeded} unit${succeeded===1?'':'s'} to My Collection.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
+    <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
+  `;
+  document.getElementById('listImportDoneBtn').onclick = renderCollectionList;
+  document.getElementById('listImportHomeBtn').onclick = renderHome;
 }
 
 // ---------- LOADING ----------
@@ -1299,6 +1434,7 @@ Do not include unit_composition, abilities, or keyword lists — they aren't nee
 
   const fullPrompt = `Give the current Warhammer 40,000 (11th edition) datasheet for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. Use the most current points and rules you know.
 Stats, weapon profiles, and abilities matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every detail reflects the very latest balance update. Points costs change far more often than the rest and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value as a plain clean value (no "~", no extra wording — just e.g. "80 pts (5 models)") and instead set "points_uncertain" to true so the app can flag it separately. Never let uncertainty about points alone stop you from returning the rest of the datasheet.
+The weapons list must be COMPLETE, not just a default loadout: include every distinct weapon profile this unit can possibly take — every ranged and melee weapon option, every special/heavy weapon a model in the unit may be equipped with, every character/sergeant/champion-only wargear weapon, and every wargear substitution option (e.g. "any model can replace their bolt pistol with X", "one in every five models can take Y instead"). If the datasheet's wargear options section lists a weapon by name, that weapon needs its own entry in the weapons array with its full profile — do not collapse options down to just what a single "typical" loadout would carry.
 Only use the error response below if you cannot confidently identify the unit itself or its core stats/weapons — not merely because its points might be outdated.
 Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
 {
@@ -1308,7 +1444,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
  "points_uncertain": false,
  "unit_composition": "short plain text",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
- "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}],
+ "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}] (every weapon option available to the unit — see instruction above, not just a default loadout),
  "abilities": [{"name":"...", "description":"paraphrased in your own words, one to two sentences, do not quote official rule text verbatim"}],
  "keywords": ["..."],
  "faction_keywords": ["..."]
@@ -1327,7 +1463,7 @@ If the unit itself cannot be confidently found, instead respond with ONLY: {"err
   const data = await callGemini({
     contents: [{ role: 'user', parts: [{ text: isLight ? lightPrompt : fullPrompt }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { maxOutputTokens: isLight ? 2000 : 3500 },
+    generationConfig: { maxOutputTokens: isLight ? 2000 : 5000 },
   }, { model: TEXT_MODEL });
 
   const text = extractText(data);
