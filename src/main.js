@@ -436,6 +436,10 @@ function parseArmyListText(text){
   // An all-caps line that ISN'T itself a priced unit header is a section
   // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
   const sectionLabelRe = /^[A-Z][A-Z \/&'-]{2,40}$/;
+  // The list's own title/header often reuses the exact "Name (NNN pts)"
+  // shape a unit line has (e.g. "My Death Guard Army (1000 Points)"), but
+  // real Warhammer unit names never contain these words — a title does.
+  const titleWordRe = /\b(army|list|roster|crusade|detachment|patrol|incursion|strike force|onslaught)\b/i;
   const seen = new Set();
   const units = [];
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
@@ -459,7 +463,7 @@ function parseArmyListText(text){
     const m = line.match(headerRe);
     if(!m || inWargearBlock) continue;
     const name = m[1].trim().replace(/\s{2,}/g, ' ');
-    if(!name) continue;
+    if(!name || titleWordRe.test(name)) continue;
     const key = name.toLowerCase();
     if(seen.has(key)) continue;
     seen.add(key);
@@ -1047,28 +1051,33 @@ async function renderBattleCollectionPicker(battleId, team){
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
   const emptyNote = `<div class="noteBox">Your collection is empty. Open any datasheet and tap "Save to My Collection" first, then it'll show up here for future battles.</div>`;
-  const cards = list.map(u => `
-    <div class="libCard" data-id="${u.id}">
-      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
-      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-    </div>
+  const rows = list.map((u, i) => `
+    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+      <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+      <span style="flex:1;">
+        <div class="libName" style="margin:0;">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+      </span>
+    </label>
   `).join('');
 
   main.innerHTML = `
-    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Tap a saved unit to add it instantly — no rescanning needed.</div>
-    ${list.length ? cards : emptyNote}
+    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units to add — no rescanning needed.</div>
+    ${list.length ? rows : emptyNote}
+    ${list.length ? '<button class="btn primary" id="confirmCollAddBtn" style="margin-top:14px;">✓ Add Selected</button>' : ''}
     <button class="btn ghost" id="collPickerBackBtn" style="margin-top:10px;">← Back</button>
   `;
 
-  list.forEach(u => {
-    const card = main.querySelector(`.libCard[data-id="${u.id}"]`);
-    if(card){
-      card.addEventListener('click', async () => {
-        currentBattleContext = { battleId, team };
-        await renderDatasheet(u);
-      });
-    }
-  });
+  if(list.length){
+    document.getElementById('confirmCollAddBtn').onclick = async () => {
+      const selected = list.filter((u, i) => document.querySelector(`.collPickCheck[data-idx="${i}"]`).checked);
+      if(!selected.length) return;
+      for(const u of selected){
+        await addUnitToBattle(battleId, team, u);
+      }
+      renderBattleDetail(battleId);
+    };
+  }
   document.getElementById('collPickerBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
 }
 
