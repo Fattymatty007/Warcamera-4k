@@ -94,7 +94,7 @@ async function main() {
     const weapons = dsWargear.map((w) => ({
       name: stripHtml(w.name),
       type: w.type || '',
-      range: w.range && w.range !== '-' ? `${w.range}"` : 'Melee',
+      range: /^\d+$/.test((w.range || '').trim()) ? `${w.range}"` : (w.range || 'Melee'),
       attacks: stripHtml(w.A),
       skill: stripHtml(w.BS_WS),
       strength: stripHtml(w.S),

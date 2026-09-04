@@ -28,6 +28,16 @@ export default defineConfig({
         navigateFallback: 'index.html',
         runtimeCaching: [
           {
+            // Same-origin static data (points-data.json, datasheets-data.json
+            // — the latter several MB) only changes on a weekly refresh cycle
+            // at most, so re-fetching it on every app launch would be
+            // wasteful. StaleWhileRevalidate serves the cached copy instantly
+            // and picks up a refreshed file in the background.
+            urlPattern: /\/(points|datasheets)-data\.json$/,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'warcamera-data-json' },
+          },
+          {
             // Google Fonts stylesheet — refresh in the background, serve cached instantly.
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'StaleWhileRevalidate',

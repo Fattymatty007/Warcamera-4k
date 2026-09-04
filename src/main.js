@@ -39,21 +39,75 @@ function normalizePointsName(name){
   return (name||'').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-async function lookupOfficialPoints(unitName){
-  const data = await loadPointsData();
+// Shared exact-then-substring lookup used by both the points dataset and
+// the datasheets dataset below (e.g. "Chaos Defiler" matching the source's
+// plain "Defiler" entry).
+function lookupInDataset(data, unitName){
   if(!data || !data.units) return null;
   const key = normalizePointsName(unitName);
   if(!key) return null;
   if(data.units[key]) return data.units[key];
-  // Fall back to a substring match (e.g. "Chaos Defiler" vs manual's "Defiler")
   const keys = Object.keys(data.units);
   const hit = keys.find(k => k.length > 2 && (key.includes(k) || k.includes(key)));
   return hit ? data.units[hit] : null;
 }
 
+async function lookupOfficialPoints(unitName){
+  return lookupInDataset(await loadPointsData(), unitName);
+}
+
 function formatOfficialPoints(entry){
   const raw = (entry.points || '').trim();
   return /^\d+$/.test(raw) ? raw + ' pts' : raw;
+}
+
+// Official datasheets (stats/weapons/abilities/keywords), extracted from
+// Wahapedia's public 11th-edition data export by
+// .github/workflows/update-datasheets.yml (see scripts/fetch-datasheets.mjs)
+// and served as a static file alongside the app — no worker/Gemini call
+// involved. Checked BEFORE asking Gemini for a datasheet at all: when a
+// unit matches, its stats/weapons/abilities come straight from this
+// authoritative, current-edition-only source instead of the model's own
+// knowledge, which blends every edition it's ever seen with no reliable
+// way to tell current content apart from a retired weapon option — and
+// which a visitor's own (usually unbilled, non-grounded) API key has no
+// way to verify against anything current at all. Only a unit not found
+// here (e.g. a very new release) falls through to asking Gemini.
+let datasheetsDataPromise = null;
+function loadDatasheetsData(){
+  if(!datasheetsDataPromise){
+    datasheetsDataPromise = fetch('/datasheets-data.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return datasheetsDataPromise;
+}
+
+async function lookupOfficialDatasheet(unitName){
+  return lookupInDataset(await loadDatasheetsData(), unitName);
+}
+
+// Builds the same shape fetchDatasheet()/renderDatasheet() already expect
+// from a Gemini response, directly from the scraped dataset — points are
+// intentionally left blank/uncertain here since Wahapedia's export doesn't
+// include them at all; lookupDatasheetRaw fills them in right after from
+// the separate points dataset, same as it does for a Gemini-sourced result.
+function buildParsedFromOfficialDatasheet(official, isLight){
+  const base = {
+    unit_name: official.displayName,
+    faction: official.faction,
+    points: '',
+    points_uncertain: true,
+    stats: official.stats,
+    weapons: official.weapons,
+  };
+  if(isLight) return base;
+  return Object.assign(base, {
+    unit_composition: official.unit_composition,
+    abilities: official.abilities,
+    keywords: official.keywords,
+    faction_keywords: official.faction_keywords,
+  });
 }
 
 const main = document.getElementById('main');
@@ -1444,6 +1498,32 @@ function renderCustomModelForm(thumb){
 // runRosterImport) can reuse the exact same lookup headlessly, without any
 // of fetchDatasheet's own loading/confirm/error screen rendering.
 async function lookupDatasheetRaw(unitName, faction, isLight){
+  // Check the scraped Wahapedia dataset before ever asking Gemini — when
+  // this unit is in it, its stats/weapons/abilities come straight from
+  // that authoritative, current-11e-only source, with no Gemini call at
+  // all for this step. See loadDatasheetsData above for why.
+  const officialSheet = await lookupOfficialDatasheet(unitName);
+  let parsed;
+
+  if(officialSheet){
+    parsed = buildParsedFromOfficialDatasheet(officialSheet, isLight);
+  } else {
+    parsed = await lookupDatasheetFromGemini(unitName, faction, isLight);
+  }
+
+  // Points always come from the separate Field Manual dataset regardless
+  // of where the rest of the datasheet came from — Wahapedia's export
+  // doesn't include points at all.
+  const officialPoints = await lookupOfficialPoints(parsed.unit_name);
+  if(officialPoints){
+    parsed.points = formatOfficialPoints(officialPoints);
+    parsed.points_uncertain = false;
+  }
+
+  return parsed;
+}
+
+async function lookupDatasheetFromGemini(unitName, faction, isLight){
   const lightPrompt = `Give the current Warhammer 40,000 (11th edition) datasheet stat line for the unit "${unitName}"${faction ? ' from the '+faction+' faction' : ''}, from your own knowledge of the game. This is a quick stat check, not the full datasheet.
 Stats and weapon profiles matter most here and change rarely — report them with your best knowledge whenever you can confidently identify the unit, even if you're not 100% sure every number reflects the very latest balance update. Points costs change far more often than stats and are the least reliable part of your knowledge: if you're unsure the points figure is current, still give your best-known value as a plain clean value (no "~", no extra wording — just e.g. "80 pts (5 models)") and instead set "points_uncertain" to true so the app can flag it separately. Never let uncertainty about points alone stop you from returning the rest of the datasheet.
 Only use the error response below if you cannot confidently identify the unit itself or its core stats — not merely because its points might be outdated.
@@ -1497,14 +1577,6 @@ If the unit itself cannot be confidently found, instead respond with ONLY: {"err
 
   if(parsed.error){
     throw new Error(parsed.error);
-  }
-
-  // Prefer GW's own published points over the model's guess whenever this
-  // unit is in the current Field Manual data (see loadPointsData above).
-  const official = await lookupOfficialPoints(parsed.unit_name);
-  if(official){
-    parsed.points = formatOfficialPoints(official);
-    parsed.points_uncertain = false;
   }
 
   return parsed;
