@@ -560,20 +560,22 @@ function renderArmyListParseError(message, rawText){
       <div class="errTitle">Couldn't Read That List</div>
       ${escapeHtml(message)} WarCamera looks for lines shaped like "Unit Name (NNN pts)" — the convention most army-builder plain-text exports use.
     </div>
-    <input type="text" id="listNameInput" placeholder="List name, e.g. My Death Guard Army" style="margin-top:12px;"/>
-    <button class="btn primary" id="saveTextListBtn" style="margin-top:10px;">📋 Save This List as a Text Document</button>
+    <button class="btn primary" id="saveTextListBtn" style="margin-top:14px;">📋 Save as "Army List" Anyway</button>
     <button class="btn gold" id="listErrRetryBtn">↺ Try Again</button>
     <button class="btn ghost" id="listErrBackBtn">← Home</button>
   `;
   document.getElementById('saveTextListBtn').onclick = async () => {
-    const label = document.getElementById('listNameInput').value.trim();
-    await addTextListToCollection(rawText, label);
-    renderTextListSaved(label);
+    await addTextListToCollection(rawText, 'Army List');
+    renderTextListSaved('Army List');
   };
   document.getElementById('listErrRetryBtn').onclick = renderPasteListScreen;
   document.getElementById('listErrBackBtn').onclick = renderHome;
 }
 
+// The pasted list itself shows up as one more checkbox in the same list of
+// selectable units — no separate name field or second button — so adding
+// it to My Collection is exactly the same one-tap action as adding any of
+// the individual units found in it.
 function renderArmyListConfirm(units, rawText){
   setStatus('', 'STANDBY');
   const rows = units.map((u, i) => `
@@ -583,23 +585,20 @@ function renderArmyListConfirm(units, rawText){
     </label>
   `).join('');
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. You can save the whole pasted list as one document, or add individual units to My Collection (each one gets freshly looked up, same as a name search).</div>
-    <input type="text" id="listNameInput" placeholder="List name, e.g. My Death Guard Army" />
-    <button class="btn primary" id="saveTextListBtn" style="margin-top:10px;">📋 Save This List as a Text Document</button>
-    <div class="divider" style="margin-top:14px;">or</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right, then add the rest to My Collection — each unit gets freshly looked up, same as a name search.</div>
+    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+      <input type="checkbox" id="listDocCheck" checked style="width:18px; height:18px; flex-shrink:0;"/>
+      <span class="libName" style="margin:0;">📋 Army List</span>
+    </label>
     ${rows}
-    <button class="btn gold" id="confirmListImportBtn">💾 Add Selected as Individual Units</button>
+    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Add Selected to My Collection</button>
     <button class="btn ghost" id="cancelListImportBtn">✕ Cancel</button>
   `;
-  document.getElementById('saveTextListBtn').onclick = async () => {
-    const label = document.getElementById('listNameInput').value.trim();
-    await addTextListToCollection(rawText, label);
-    renderTextListSaved(label);
-  };
   document.getElementById('confirmListImportBtn').onclick = () => {
-    const selected = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
-    if(!selected.length) return;
-    runArmyListImport(selected);
+    const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
+    const includeDoc = document.getElementById('listDocCheck').checked;
+    if(!selectedUnits.length && !includeDoc) return;
+    runArmyListImport(selectedUnits, includeDoc ? rawText : null);
   };
   document.getElementById('cancelListImportBtn').onclick = renderHome;
 }
@@ -615,10 +614,14 @@ function renderTextListSaved(label){
   document.getElementById('listSaveHomeBtn').onclick = renderHome;
 }
 
-async function runArmyListImport(units){
+async function runArmyListImport(units, rawText){
   setStatus('busy', 'IMPORTING');
   let succeeded = 0;
   const failed = [];
+  if(rawText){
+    await addTextListToCollection(rawText, 'Army List');
+    succeeded++;
+  }
   for(let i=0;i<units.length;i++){
     renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
     try{
@@ -631,7 +634,7 @@ async function runArmyListImport(units){
   }
   setStatus('', 'LINK ESTABLISHED');
   main.innerHTML = `
-    <div class="noteBox">Added ${succeeded} unit${succeeded===1?'':'s'} to My Collection.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">Added ${succeeded} item${succeeded===1?'':'s'} to My Collection.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
     <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
   `;
