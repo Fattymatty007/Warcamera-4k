@@ -523,7 +523,9 @@ function parseArmyListText(text){
   const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|\d+\s*x\b|[•\-*▪◦›»])/i;
   // Brackets and parentheses are treated as interchangeable — some list
   // apps export "Unit Name [100 pts]" instead of "Unit Name (100 pts)".
-  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*$/i;
+  // A trailing colon is also allowed — some exporters write "Unit Name
+  // [100 pts]:" right before that unit's own attached wargear/leader line.
+  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*:?\s*$/i;
   const wargearSectionRe = /^wargear options?:?$/i;
   // An all-caps line that ISN'T itself a priced unit header is a section
   // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
@@ -532,7 +534,6 @@ function parseArmyListText(text){
   // shape a unit line has (e.g. "My Death Guard Army (1000 Points)"), but
   // real Warhammer unit names never contain these words — a title does.
   const titleWordRe = /\b(army|list|roster|crusade|detachment|patrol|incursion|strike force|onslaught)\b/i;
-  const seen = new Set();
   const units = [];
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
   // lines right after an explicit "Wargear Options:" label, with no bullet
@@ -575,9 +576,9 @@ function parseArmyListText(text){
     }
     const name = m[1].trim().replace(/\s{2,}/g, ' ');
     if(!name || titleWordRe.test(name)) continue;
-    const key = name.toLowerCase();
-    if(seen.has(key)) continue;
-    seen.add(key);
+    // No dedup by name here — a real roster can legitimately field the
+    // same unit choice more than once (e.g. two separate Nurglings units),
+    // each a distinct entry in the confirm screen below.
     units.push({ n: name });
   }
   return units;
