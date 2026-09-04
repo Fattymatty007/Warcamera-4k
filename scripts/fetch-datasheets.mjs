@@ -151,12 +151,22 @@ async function main() {
       faction_keywords: factionKeywordList,
     };
 
+    // Some units have a genuinely separate datasheet per faction that can
+    // take them — e.g. Nurgle Daemon units like Nurglings or Plague Drones
+    // have their own row under both Chaos Daemons and Death Guard — so this
+    // keeps every variant under the same name key instead of letting later
+    // ones silently overwrite earlier ones. The app decides what to do with
+    // more than one (ask which faction) once it has all of them.
     const key = normalizeName(record.displayName);
-    if (key) units[key] = record;
+    if (key) {
+      if (!units[key]) units[key] = [];
+      units[key].push(record);
+    }
   }
 
   const count = Object.keys(units).length;
-  console.log('Datasheets kept:', count, '| skipped as Legends:', skippedLegend, '| skipped (no model line):', skippedNoModels);
+  const variantCount = Object.values(units).reduce((sum, v) => sum + v.length, 0);
+  console.log('Datasheets kept:', variantCount, 'across', count, 'unit names (', variantCount - count, 'multi-faction duplicates ) | skipped as Legends:', skippedLegend, '| skipped (no model line):', skippedNoModels);
   if (count < 500) {
     console.error(`Suspiciously few datasheets (${count}) — join logic likely needs tuning.`);
   }

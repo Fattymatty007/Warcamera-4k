@@ -39,17 +39,22 @@ function normalizePointsName(name){
   return (name||'').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// Shared exact-then-substring lookup used by both the points dataset and
+// Shared exact-then-substring key match used by both the points dataset and
 // the datasheets dataset below (e.g. "Chaos Defiler" matching the source's
 // plain "Defiler" entry).
-function lookupInDataset(data, unitName){
+function findDatasetKey(data, unitName){
   if(!data || !data.units) return null;
   const key = normalizePointsName(unitName);
   if(!key) return null;
-  if(data.units[key]) return data.units[key];
+  if(data.units[key]) return key;
   const keys = Object.keys(data.units);
   const hit = keys.find(k => k.length > 2 && (key.includes(k) || k.includes(key)));
-  return hit ? data.units[hit] : null;
+  return hit || null;
+}
+
+function lookupInDataset(data, unitName){
+  const key = findDatasetKey(data, unitName);
+  return key ? data.units[key] : null;
 }
 
 async function lookupOfficialPoints(unitName){
@@ -83,8 +88,41 @@ function loadDatasheetsData(){
   return datasheetsDataPromise;
 }
 
-async function lookupOfficialDatasheet(unitName){
-  return lookupInDataset(await loadDatasheetsData(), unitName);
+// A unit name can map to more than one official datasheet — some units
+// (e.g. Nurgle Daemon units like Nurglings or Plague Drones) have a
+// genuinely separate datasheet per faction that can take them. See
+// fetch-datasheets.mjs — every variant is kept under the same name key.
+async function lookupOfficialDatasheetVariants(unitName){
+  const data = await loadDatasheetsData();
+  const key = findDatasetKey(data, unitName);
+  if(!key) return [];
+  const entry = data.units[key];
+  // Tolerates the previous single-object-per-key schema too (not just the
+  // current array-of-variants one) — the app and datasheets-data.json
+  // deploy independently (this file's build vs. update-datasheets.yml's
+  // own commit+deploy), so there's always a window where one has shipped
+  // and the other hasn't yet.
+  return Array.isArray(entry) ? entry : [entry];
+}
+
+// Picks one variant for callers that need a single result (bulk imports,
+// or an interactive lookup that already knows which faction it wants):
+// prefers a variant whose faction matches the given hint, and otherwise
+// just takes the first. Interactive single-unit search instead calls
+// lookupOfficialDatasheetVariants() directly so it can ask the user when
+// there's more than one and no hint to go on — see fetchDatasheet().
+async function lookupOfficialDatasheet(unitName, factionHint){
+  const variants = await lookupOfficialDatasheetVariants(unitName);
+  if(!variants.length) return null;
+  const hint = (factionHint || '').toLowerCase().trim();
+  if(hint){
+    const match = variants.find(v => {
+      const vf = (v.faction || '').toLowerCase();
+      return vf && (vf.includes(hint) || hint.includes(vf));
+    });
+    if(match) return match;
+  }
+  return variants[0];
 }
 
 // Builds the same shape fetchDatasheet()/renderDatasheet() already expect
@@ -1600,8 +1638,12 @@ async function lookupDatasheetRaw(unitName, faction, isLight){
   // Check the scraped Wahapedia dataset before ever asking Gemini — when
   // this unit is in it, its stats/weapons/abilities come straight from
   // that authoritative, current-11e-only source, with no Gemini call at
-  // all for this step. See loadDatasheetsData above for why.
-  const officialSheet = await lookupOfficialDatasheet(unitName);
+  // all for this step. See loadDatasheetsData above for why. When a unit
+  // has more than one faction's datasheet, this picks the one matching
+  // `faction` if given (fetchDatasheet() already resolved that through
+  // the picker for an interactive search with no hint) — a bulk import
+  // with no faction hint just gets the first variant.
+  const officialSheet = await lookupOfficialDatasheet(unitName, faction);
   let parsed;
 
   if(officialSheet){
@@ -1686,6 +1728,19 @@ async function fetchDatasheet(unitName, faction, mode){
   setStatus('busy', 'RETRIEVING');
   renderLoading('CONSULTING ARCHIVES', `Pulling ${mode === 'confirm' ? 'quick stats' : 'full datasheet'} for ${unitName}…`);
 
+  // Some units (e.g. Nurgle Daemon units also available to Death Guard)
+  // have a separate official datasheet per faction. When the caller hasn't
+  // already pinned one down — a plain name search, not a photo ID (which
+  // already guesses a faction) or a re-fetch after picking one below —
+  // ask which faction's version instead of silently guessing.
+  if(!faction){
+    const variants = await lookupOfficialDatasheetVariants(unitName);
+    if(variants.length > 1){
+      renderFactionPicker(unitName, variants, mode);
+      return;
+    }
+  }
+
   const isLight = mode === 'confirm';
 
   try{
@@ -1698,6 +1753,19 @@ async function fetchDatasheet(unitName, faction, mode){
   }catch(err){
     renderLookupError(err, unitName, mode);
   }
+}
+
+function renderFactionPicker(unitName, variants, mode){
+  setStatus('', 'STANDBY');
+  main.innerHTML = `
+    <div class="noteBox">"${escapeHtml(unitName)}" has its own datasheet in more than one army. Which one do you want?</div>
+    ${variants.map((v, i) => `<button class="btn gold" data-faction-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(v.faction || 'Unknown Faction')}</button>`).join('')}
+    <button class="btn ghost" id="factionPickerCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+  `;
+  variants.forEach((v, i) => {
+    document.querySelector(`[data-faction-idx="${i}"]`).onclick = () => fetchDatasheet(v.displayName || unitName, v.faction, mode);
+  });
+  document.getElementById('factionPickerCancelBtn').onclick = renderHome;
 }
 
 function renderLookupError(err, unitName, mode){
