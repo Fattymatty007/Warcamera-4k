@@ -557,13 +557,22 @@ function renderArmyListConfirm(units){
     </label>
   `).join('');
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right, then add the rest to My Collection — each one gets freshly looked up, same as a name search.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right, then choose how to save it — each unit gets freshly looked up, same as a name search.</div>
     ${rows}
-    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Add Selected to My Collection</button>
+    <input type="text" id="listNameInput" placeholder="List name, e.g. My Death Guard Army" style="margin-top:12px;"/>
+    <button class="btn primary" id="confirmListSaveBtn" style="margin-top:10px;">📋 Save Selected as One List Entry</button>
+    <button class="btn gold" id="confirmListImportBtn">💾 Add Selected as Individual Units</button>
     <button class="btn ghost" id="cancelListImportBtn">✕ Cancel</button>
   `;
+  const getSelected = () => units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
+  document.getElementById('confirmListSaveBtn').onclick = () => {
+    const selected = getSelected();
+    if(!selected.length) return;
+    const label = document.getElementById('listNameInput').value.trim();
+    runArmyListSaveAsList(selected, label);
+  };
   document.getElementById('confirmListImportBtn').onclick = () => {
-    const selected = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
+    const selected = getSelected();
     if(!selected.length) return;
     runArmyListImport(selected);
   };
@@ -592,6 +601,34 @@ async function runArmyListImport(units){
   `;
   document.getElementById('listImportDoneBtn').onclick = renderCollectionList;
   document.getElementById('listImportHomeBtn').onclick = renderHome;
+}
+
+async function runArmyListSaveAsList(units, label){
+  setStatus('busy', 'IMPORTING');
+  const datasheets = [];
+  const failed = [];
+  for(let i=0;i<units.length;i++){
+    renderLoading('SAVING LIST', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
+    try{
+      const d = await lookupDatasheetRaw(units[i].n, '', false);
+      datasheets.push(d);
+    }catch(err){
+      failed.push(units[i].n);
+    }
+  }
+  if(!datasheets.length){
+    renderArmyListParseError(`Couldn't confidently look up any of those units.`);
+    return;
+  }
+  await addListToCollection(datasheets, label);
+  setStatus('', 'LINK ESTABLISHED');
+  main.innerHTML = `
+    <div class="noteBox">Saved "${escapeHtml(label || 'Imported List')}" (${datasheets.length} unit${datasheets.length===1?'':'s'}) to My Collection.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+'.' : ''}</div>
+    <button class="btn primary" id="listSaveDoneBtn">📚 View My Collection</button>
+    <button class="btn ghost" id="listSaveHomeBtn">🏠 Home</button>
+  `;
+  document.getElementById('listSaveDoneBtn').onclick = renderCollectionList;
+  document.getElementById('listSaveHomeBtn').onclick = renderHome;
 }
 
 // ---------- LOADING ----------
@@ -897,6 +934,17 @@ async function removeUnitFromCollection(unitId){
   await saveCollectionList(list.filter(u => u.id !== unitId));
 }
 
+// A list entry acts just like a unit entry in the collection UI, but wraps
+// an array of datasheets instead of a single one — selecting it in a battle
+// adds every unit in the list at once.
+async function addListToCollection(datasheets, label){
+  const list = await loadCollection();
+  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isList: true, listName: label || 'Imported List', units: datasheets };
+  list.unshift(entry);
+  await saveCollectionList(list);
+  return entry;
+}
+
 // ---------- SCREEN: BATTLE LIST ----------
 async function renderBattleList(){
   clearFooter();
@@ -1105,7 +1153,15 @@ async function renderBattleCollectionPicker(battleId, team){
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
   const emptyNote = `<div class="noteBox">Your collection is empty. Open any datasheet and tap "Save to My Collection" first, then it'll show up here for future battles.</div>`;
-  const rows = list.map((u, i) => `
+  const rows = list.map((u, i) => u.isList ? `
+    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+      <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+      <span style="flex:1;">
+        <div class="libName" style="margin:0;">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+        <div class="libMeta">${u.units.length} unit${u.units.length===1?'':'s'} — adds the whole list</div>
+      </span>
+    </label>
+  ` : `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
       <span style="flex:1;">
@@ -1116,7 +1172,7 @@ async function renderBattleCollectionPicker(battleId, team){
   `).join('');
 
   main.innerHTML = `
-    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units to add — no rescanning needed.</div>
+    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units or lists to add — no rescanning needed.</div>
     ${list.length ? rows : emptyNote}
     ${list.length ? '<button class="btn primary" id="confirmCollAddBtn" style="margin-top:14px;">✓ Add Selected</button>' : ''}
     <button class="btn ghost" id="collPickerBackBtn" style="margin-top:10px;">← Back</button>
@@ -1127,7 +1183,11 @@ async function renderBattleCollectionPicker(battleId, team){
       const selected = list.filter((u, i) => document.querySelector(`.collPickCheck[data-idx="${i}"]`).checked);
       if(!selected.length) return;
       for(const u of selected){
-        await addUnitToBattle(battleId, team, u);
+        if(u.isList){
+          for(const sub of u.units){ await addUnitToBattle(battleId, team, sub); }
+        } else {
+          await addUnitToBattle(battleId, team, u);
+        }
       }
       renderBattleDetail(battleId);
     };
@@ -1347,7 +1407,13 @@ async function renderCollectionList(){
   const list = await loadCollection();
 
   const emptyNote = `<div class="noteBox">No saved units yet. Open any datasheet and tap "Save to My Collection" to keep it here — reopen it anytime, or add it straight into a battle without rescanning.</div>`;
-  const cards = list.map(u => `
+  const cards = list.map(u => u.isList ? `
+    <div class="libCard" data-id="${u.id}">
+      <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+      <div class="libMeta">${u.units.length} unit${u.units.length===1?'':'s'}</div>
+      <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+    </div>
+  ` : `
     <div class="libCard" data-id="${u.id}">
       <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
       <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
@@ -1356,7 +1422,7 @@ async function renderCollectionList(){
   `).join('');
 
   main.innerHTML = `
-    ${list.length ? '<div class="noteBox">Tap a saved unit to reopen its datasheet.</div>' + cards : emptyNote}
+    ${list.length ? '<div class="noteBox">Tap a saved unit or list to reopen it.</div>' + cards : emptyNote}
     <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
   `;
 
@@ -1365,7 +1431,8 @@ async function renderCollectionList(){
     if(card){
       card.addEventListener('click', (e) => {
         if(e.target.closest('[data-del]')) return;
-        renderCollectionUnitView(u);
+        if(u.isList) renderCollectionListDetailView(u);
+        else renderCollectionUnitView(u);
       });
     }
   });
@@ -1386,6 +1453,36 @@ function renderCollectionUnitView(unit){
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn">← Back to Collection</button>`;
   document.getElementById('collUnitBackBtn').onclick = renderCollectionList;
+}
+
+function renderCollectionListDetailView(entry){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  const rows = entry.units.map((u, i) => `
+    <div class="libCard" data-idx="${i}">
+      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+    </div>
+  `).join('');
+  main.innerHTML = `
+    <div class="noteBox">📋 <strong>${escapeHtml(entry.listName || 'Imported List')}</strong> — ${entry.units.length} unit${entry.units.length===1?'':'s'}. Tap a unit to view its full datasheet.</div>
+    ${rows}
+  `;
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="collListBackBtn">← Back to Collection</button>`;
+  entry.units.forEach((u, i) => {
+    const card = main.querySelector(`.libCard[data-idx="${i}"]`);
+    if(card) card.addEventListener('click', () => renderCollectionListUnitView(entry, u));
+  });
+  document.getElementById('collListBackBtn').onclick = renderCollectionList;
+}
+
+function renderCollectionListUnitView(entry, unit){
+  setStatus('', 'STANDBY');
+  main.innerHTML = buildDatasheetSheetHtml(unit);
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="collListUnitBackBtn">← Back to List</button>`;
+  document.getElementById('collListUnitBackBtn').onclick = () => renderCollectionListDetailView(entry);
 }
 
 // ---------- SCREEN: CUSTOM MODEL LIBRARY ----------
