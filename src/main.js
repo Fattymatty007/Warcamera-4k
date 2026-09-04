@@ -506,16 +506,35 @@ function parseArmyListText(text){
   // or section break in between.
   let inWargearBlock = false;
   let wargearIndent = 0;
-  for(const rawLine of text.split(/\r?\n/)){
+  // A roster's own title/header (e.g. "Death Guard (2000 Points)") almost
+  // always sits as the very first line, shaped exactly like a unit header —
+  // but unlike a real unit, it's always set apart from the roster body by
+  // a blank line or a structural line (faction/detachment info, a section
+  // label) before the first actual unit. A flat, title-less list has no
+  // such gap: its first line is immediately followed by another priced
+  // unit line with nothing in between. So only treat the first header-
+  // shaped line as a title when something other than a unit follows it —
+  // otherwise a genuine first unit would get silently dropped.
+  const lines = text.split(/\r?\n/);
+  let sawFirstContentLine = false;
+  for(let li = 0; li < lines.length; li++){
+    const rawLine = lines[li];
     const indent = rawLine.match(/^[ \t]*/)[0].length;
     const line = rawLine.trim();
     if(!line){ inWargearBlock = false; continue; }
+    const isFirstContentLine = !sawFirstContentLine;
+    sawFirstContentLine = true;
     if(inWargearBlock && indent < wargearIndent) inWargearBlock = false;
     if(wargearSectionRe.test(line)){ inWargearBlock = true; wargearIndent = indent; continue; }
     if(sectionLabelRe.test(line) && !headerRe.test(line)){ inWargearBlock = false; continue; }
     if(skipPrefixRe.test(line)) continue;
     const m = line.match(headerRe);
     if(!m || inWargearBlock) continue;
+    if(isFirstContentLine){
+      const nextLine = (lines[li+1] || '').trim();
+      const nextIsAnotherUnit = nextLine && headerRe.test(nextLine);
+      if(!nextIsAnotherUnit) continue;
+    }
     const name = m[1].trim().replace(/\s{2,}/g, ' ');
     if(!name || titleWordRe.test(name)) continue;
     const key = name.toLowerCase();
@@ -1823,6 +1842,34 @@ function escapeHtml(str){
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Once installed, the PWA's service worker only checks for a new version on
+// its own schedule (the browser throttles this to roughly once a day), so a
+// deploy can go unnoticed for a long time even though skipWaiting/clientsClaim
+// (see vite.config.js's registerType: 'autoUpdate') would apply it instantly
+// once found. Actively re-check whenever the app is opened or brought back to
+// the foreground, and reload as soon as a new version takes control, so a
+// fresh deploy shows up within seconds instead of up to a day later.
+if('serviceWorker' in navigator){
+  // clientsClaim() (see vite.config.js) makes even a brand-new page's very
+  // first load fire 'controllerchange' — going from no controller to one —
+  // which is not an update and must not trigger a reload. Only a *second*
+  // controllerchange, replacing an already-set controller, is a real update.
+  let hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if(!hadController){ hadController = true; return; }
+    if(reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.ready.then(reg => {
+    reg.update();
+    document.addEventListener('visibilitychange', () => {
+      if(document.visibilityState === 'visible') reg.update();
+    });
+  }).catch(() => {});
 }
 
 // init
