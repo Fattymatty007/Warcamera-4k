@@ -142,6 +142,7 @@ input[type=text], input[type=password], input[type=date], textarea{
   color-scheme:dark;
 }
 input[type=text]:focus, input[type=password]:focus, input[type=date]:focus, textarea:focus{outline:2px solid var(--brass); outline-offset:1px;}
+input[type=text]::placeholder, input[type=password]::placeholder{letter-spacing:normal;}
 textarea{resize:vertical; min-height:160px; letter-spacing:normal; line-height:1.4;}
 textarea::placeholder{font-style:italic; color:var(--muted);}
 

@@ -209,7 +209,7 @@ function renderHome(){
     <button class="btn ghost" id="battlesBtn">⚔️ Battles</button>
     <button class="btn ghost" id="apiKeyBtn">🔑 API Key Settings</button>
     <div class="divider">or</div>
-    <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
+    <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessors" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
     <button class="detailsToggle" id="detailsToggleBtn">▾ Show App Details</button>
     <div class="noteBox" id="appDetailsBox" hidden>
@@ -1064,7 +1064,7 @@ async function renderBattleScanEntry(battleId, team){
     <button class="btn gold" id="battleUploadBtn">🖼 Upload a Photo</button>
     <input type="file" id="battleFileInput" accept="image/*" style="display:none;" />
     <div class="divider">or</div>
-    <input type="text" id="battleManualInput" placeholder="Type a unit name, e.g. Intercessor Squad" />
+    <input type="text" id="battleManualInput" placeholder="Type a unit name, e.g. Intercessors" />
     <button class="btn gold" id="battleManualBtn">🔎 Look Up Datasheet</button>
     <button class="btn ghost" id="battleFromCollectionBtn" style="margin-top:10px;">📚 Add From My Collection</button>
     <button class="btn ghost" id="battleImportQrBtn">🔳 Import Roster via QR</button>
