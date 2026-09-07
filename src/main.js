@@ -523,7 +523,16 @@ function parseArmyListText(text){
   // shape a unit line has (e.g. "My Death Guard Army (1000 Points)"), but
   // real Warhammer unit names never contain these words — a title does.
   const titleWordRe = /\b(army|list|roster|crusade|detachment|patrol|incursion|strike force|onslaught)\b/i;
+  // A character's own attached-unit note, e.g. "• Leading: Plaguebearers[2]"
+  // right under its header line — captured so the led unit can be moved to
+  // sit directly after its character below, instead of wherever it happens
+  // to fall elsewhere in the list. A trailing "[N]" index (some exporters'
+  // way of disambiguating same-named units) is stripped since it isn't
+  // resolved here — the led unit is matched by name only.
+  const leadingRe = /^[•\-*▪◦›»]\s*(?:leading|leads|attached to|joined to)\s*:\s*(.+?)\s*(?:\[\d+\])?\s*$/i;
   const units = [];
+  const leaderRelations = [];
+  let lastUnitIndex = -1;
   let title = null;
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
   // lines right after an explicit "Wargear Options:" label, with no bullet
@@ -556,6 +565,12 @@ function parseArmyListText(text){
     if(inWargearBlock && indent < wargearIndent) inWargearBlock = false;
     if(wargearSectionRe.test(line)){ inWargearBlock = true; wargearIndent = indent; continue; }
     if(sectionLabelRe.test(line) && !headerRe.test(line)){ inWargearBlock = false; continue; }
+    const leadMatch = line.match(leadingRe);
+    if(leadMatch && lastUnitIndex >= 0){
+      const ledName = leadMatch[1].trim().replace(/\s{2,}/g, ' ');
+      if(ledName) leaderRelations.push({ leaderIdx: lastUnitIndex, ledName });
+      continue;
+    }
     if(skipPrefixRe.test(line)) continue;
     const m = line.match(headerRe);
     if(!m || inWargearBlock) continue;
@@ -577,6 +592,33 @@ function parseArmyListText(text){
     // same unit choice more than once (e.g. two separate Nurglings units),
     // each a distinct entry in the confirm screen below.
     units.push({ n: name, pts: Number(m[2]) || 0 });
+    lastUnitIndex = units.length - 1;
+  }
+  // Move each led unit to sit directly after the character leading it,
+  // pulling it out of wherever it originally fell in the list. If more
+  // than one unit shares that name, attaches to the first one not already
+  // claimed by another leader.
+  if(leaderRelations.length){
+    const attachedAfter = new Map();
+    const claimed = new Set();
+    for(const rel of leaderRelations){
+      const ledKey = rel.ledName.toLowerCase();
+      const foundIdx = units.findIndex((u, idx) => idx !== rel.leaderIdx && !claimed.has(idx) && u.n.toLowerCase() === ledKey);
+      if(foundIdx !== -1){
+        attachedAfter.set(rel.leaderIdx, foundIdx);
+        claimed.add(foundIdx);
+      }
+    }
+    if(claimed.size){
+      const reordered = [];
+      for(let i = 0; i < units.length; i++){
+        if(claimed.has(i)) continue;
+        reordered.push(units[i]);
+        if(attachedAfter.has(i)) reordered.push(units[attachedAfter.get(i)]);
+      }
+      units.length = 0;
+      units.push(...reordered);
+    }
   }
   return { units, title };
 }
@@ -1096,7 +1138,11 @@ async function renderBattleDetail(battleId){
 
   const buildTeamHtml = (units, team) => {
     if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
-    return units.map(u => u.isTextList ? `
+    // The army list's own text card always reads first, regardless of when
+    // it was added relative to the units — everything else keeps its
+    // existing (list) order.
+    const ordered = [...units].sort((a, b) => (b.isTextList?1:0) - (a.isTextList?1:0));
+    return ordered.map(u => u.isTextList ? `
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
         <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
         <div class="libMeta">Text document</div>
