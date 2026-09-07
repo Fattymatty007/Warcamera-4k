@@ -241,22 +241,25 @@ function renderHome(){
   main.innerHTML = `
     ${canInstall() ? '<button class="btn gold" id="installBtn">⬇ Install App</button>' : ''}
     <button class="btn primary" id="scanBtn">📷 Scan Miniature</button>
-    <button class="btn gold" id="uploadBtn">📤 Upload</button>
-    <button class="btn ghost" id="customLibBtn">📋 My Custom Models</button>
-    <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
-    <button class="btn ghost" id="battlesBtn">⚔️ Battles</button>
-    <button class="btn ghost" id="apiKeyBtn">🔑 API Key Settings</button>
+    <button class="btn ghost" id="uploadPhotoBtn" style="margin-top:-6px;">🖼 Upload a Photo Instead</button>
+    <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
+    <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
+    <button class="btn gold" id="battlesBtn">⚔️ Battles</button>
     <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessors" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
+    <div class="divider">library</div>
+    <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
+    <button class="btn ghost" id="customLibBtn">🧩 Custom Model Library</button>
+    <button class="detailsToggle" id="apiKeyBtn">🔑 API Key Settings</button>
     <button class="detailsToggle" id="detailsToggleBtn">▾ Show App Details</button>
     <div class="noteBox" id="appDetailsBox" hidden>
       Visual identification is AI best-effort — paint jobs, conversions and unpainted models reduce accuracy.
       You'll be able to confirm or correct the result before stats are pulled up.
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
-      If your browser blocks camera access, Upload → A Photo works instead — it uses your device's normal photo picker rather than a live camera feed.
-      Already built a list in an army builder app? Upload → Paste an Army List to pull in every unit from a plain-text export at once, after confirming what was found.
-      Got your own conversions or proxies? Register them under My Custom Models so future scans recognize them instantly.
+      If your browser blocks camera access, Upload a Photo Instead works instead — it uses your device's normal photo picker rather than a live camera feed.
+      Already built a list in an army builder app? Paste an Army List to pull in every unit from a plain-text export at once, after confirming what was found.
+      Got your own conversions or proxies? Register them under Custom Model Library so future scans recognize them instantly.
       Scanned a unit before? Save it to My Collection from its datasheet screen, then reopen it or add it straight into a battle roster with no rescanning.
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
     </div>
@@ -270,7 +273,18 @@ function renderHome(){
   if(document.getElementById('installBtn')) document.getElementById('installBtn').onclick = handleInstall;
   document.getElementById('scanBtn').onclick = openCamera;
 
-  document.getElementById('uploadBtn').onclick = renderUploadChooser;
+  document.getElementById('uploadPhotoBtn').onclick = () => {
+    document.getElementById('uploadPhotoInput').click();
+  };
+  document.getElementById('uploadPhotoInput').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => identifyFromImage(reader.result);
+    reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('uploadListBtn').onclick = renderPasteListScreen;
 
   document.getElementById('customLibBtn').onclick = renderCustomLibrary;
   document.getElementById('collectionBtn').onclick = renderCollectionList;
@@ -467,30 +481,6 @@ function capturePhoto(){
 }
 
 // ---------- SCREEN: UPLOAD (photo or pasted army list) ----------
-function renderUploadChooser(){
-  setStatus('', 'STANDBY');
-  main.innerHTML = `
-    <div class="noteBox">What would you like to upload?</div>
-    <button class="btn gold" id="uploadPhotoBtn">🖼 A Photo of a Miniature</button>
-    <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
-    <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
-    <button class="btn ghost" id="uploadChooserCancelBtn">← Cancel</button>
-  `;
-  document.getElementById('uploadPhotoBtn').onclick = () => {
-    document.getElementById('uploadPhotoInput').click();
-  };
-  document.getElementById('uploadPhotoInput').addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = () => identifyFromImage(reader.result);
-    reader.onerror = () => renderIdError({message:'Could not read that file'}, null);
-    reader.readAsDataURL(file);
-  });
-  document.getElementById('uploadListBtn').onclick = renderPasteListScreen;
-  document.getElementById('uploadChooserCancelBtn').onclick = renderHome;
-}
-
 function renderPasteListScreen(){
   setStatus('', 'STANDBY');
   main.innerHTML = `
@@ -504,7 +494,7 @@ function renderPasteListScreen(){
     if(!text.trim()) return;
     handleArmyListFile(text, '');
   };
-  document.getElementById('pasteListCancelBtn').onclick = renderUploadChooser;
+  document.getElementById('pasteListCancelBtn').onclick = renderHome;
 }
 
 // Best-effort, format-agnostic army-list parser. Every army builder export
