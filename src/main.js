@@ -509,12 +509,21 @@ function renderPasteListScreen(){
 // always goes through a confirm screen with per-unit checkboxes before
 // anything is added.
 function parseArmyListText(text){
-  const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|\d+\s*x\b|[•\-*▪◦›»])/i;
+  // A bare quantity prefix ("3x ...", no bullet, no trailing points) isn't
+  // in this list — it's handled naturally below: such a line never matches
+  // headerRe (no trailing points cost) and falls through unmatched, same
+  // end result without risking a genuine quantity-prefixed unit header
+  // ("10x Necron Warrior (100 pts)") being excluded before it's even
+  // tested against headerRe.
+  const skipPrefixRe = /^(enhancement|warlord|wargear|relic|detachment|battle size|faction|points?:|export|roster|[•\-*▪◦›»])/i;
   // Brackets and parentheses are treated as interchangeable — some list
   // apps export "Unit Name [100 pts]" instead of "Unit Name (100 pts)".
   // A trailing colon is also allowed — some exporters write "Unit Name
   // [100 pts]:" right before that unit's own attached wargear/leader line.
-  const headerRe = /^([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*:?\s*$/i;
+  // A leading model-count ("10x Necron Warrior (100 pts)", quantity before
+  // the name rather than after) is also accepted — some exporters put it
+  // there instead of appending "x10" to the name.
+  const headerRe = /^(?:\d+\s*[xX]\s*)?([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*:?\s*$/i;
   const wargearSectionRe = /^wargear options?:?$/i;
   // An all-caps line that ISN'T itself a priced unit header is a section
   // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
