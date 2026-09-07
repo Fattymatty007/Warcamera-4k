@@ -244,10 +244,9 @@ function renderHome(){
     <button class="btn ghost" id="uploadPhotoBtn" style="margin-top:-6px;">🖼 Upload a Photo Instead</button>
     <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
     <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
-    <button class="btn gold" id="battlesBtn">⚔️ Battles</button>
-    <div class="divider">or</div>
     <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessors" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
+    <button class="btn gold" id="battlesBtn">⚔️ Battles</button>
     <div class="divider">library</div>
     <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
     <button class="btn ghost" id="customLibBtn">🧩 Custom Model Library</button>
