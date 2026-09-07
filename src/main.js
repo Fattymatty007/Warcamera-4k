@@ -613,7 +613,7 @@ function renderArmyListConfirm(units, rawText){
     </label>
   `).join('');
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right, then add the rest to My Collection — each unit gets freshly looked up, same as a name search.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — the rest get saved together into one folder in My Collection (each unit freshly looked up, same as a name search), so they stay grouped for adding to a battle in one action later.</div>
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" id="listDocCheck" checked style="width:18px; height:18px; flex-shrink:0;"/>
       <span class="libName" style="margin:0;">📋 Army List</span>
@@ -644,25 +644,36 @@ function renderTextListSaved(label){
 
 async function runArmyListImport(units, rawText){
   setStatus('busy', 'IMPORTING');
-  let succeeded = 0;
-  const failed = [];
+  let textDocSaved = false;
   if(rawText){
     await addTextListToCollection(rawText, 'Army List');
-    succeeded++;
+    textDocSaved = true;
   }
+  const datasheets = [];
+  const failed = [];
   for(let i=0;i<units.length;i++){
     renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
     try{
       const d = await lookupDatasheetRaw(units[i].n, '', false);
-      await addUnitToCollection(d);
-      succeeded++;
+      datasheets.push(d);
     }catch(err){
       failed.push(units[i].n);
     }
   }
+  // Every unit from this list goes into one shared folder instead of being
+  // scattered flat into My Collection — keeps them grouped so the whole
+  // folder can be added to a battle roster in one action later, instead of
+  // hunting through individually-scanned units mixed in with everything else.
+  if(datasheets.length){
+    await addUnitsToCollectionFolder(datasheets, 'Army List Units');
+  }
   setStatus('', 'LINK ESTABLISHED');
+  const parts = [];
+  if(datasheets.length) parts.push(`${datasheets.length} unit${datasheets.length===1?'':'s'} into a new folder`);
+  if(textDocSaved) parts.push('the full list as a text document');
+  const summary = parts.length ? `Saved ${parts.join(' and ')} in My Collection.` : `Nothing was saved.`;
   main.innerHTML = `
-    <div class="noteBox">Added ${succeeded} item${succeeded===1?'':'s'} to My Collection.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">${summary}${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
     <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
   `;
@@ -985,6 +996,18 @@ async function addTextListToCollection(rawText, label){
   return entry;
 }
 
+// A folder holds full looked-up datasheets from one list upload, grouped
+// together as one Collection entry — acts like a unit entry (same card,
+// same picker row when adding to a battle), but selecting it in a battle
+// expands into every unit it contains instead of adding just one.
+async function addUnitsToCollectionFolder(datasheets, label){
+  const list = await loadCollection();
+  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets };
+  list.unshift(entry);
+  await saveCollectionList(list);
+  return entry;
+}
+
 // ---------- SCREEN: BATTLE LIST ----------
 async function renderBattleList(){
   clearFooter();
@@ -1199,26 +1222,38 @@ async function renderBattleCollectionPicker(battleId, team){
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
   const emptyNote = `<div class="noteBox">Your collection is empty. Open any datasheet and tap "Save to My Collection" first, then it'll show up here for future battles.</div>`;
-  const rows = list.map((u, i) => u.isTextList ? `
-    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-      <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
-      <span style="flex:1;">
-        <div class="libName" style="margin:0;">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
-        <div class="libMeta">Text document</div>
-      </span>
-    </label>
-  ` : `
-    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-      <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
-      <span style="flex:1;">
-        <div class="libName" style="margin:0;">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
-        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-      </span>
-    </label>
-  `).join('');
+  const rows = list.map((u, i) => {
+    if(u.isFolder) return `
+      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+        <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+        <span style="flex:1;">
+          <div class="libName" style="margin:0;">🗂 ${escapeHtml(u.folderName || 'Army List Units')}</div>
+          <div class="libMeta">${u.units.length} unit${u.units.length===1?'':'s'} — adds them all</div>
+        </span>
+      </label>
+    `;
+    if(u.isTextList) return `
+      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+        <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+        <span style="flex:1;">
+          <div class="libName" style="margin:0;">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+          <div class="libMeta">Text document</div>
+        </span>
+      </label>
+    `;
+    return `
+      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+        <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+        <span style="flex:1;">
+          <div class="libName" style="margin:0;">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+          <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+        </span>
+      </label>
+    `;
+  }).join('');
 
   main.innerHTML = `
-    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units or lists to add — no rescanning needed.</div>
+    <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units, folders, or lists to add — no rescanning needed.</div>
     ${list.length ? rows : emptyNote}
     ${list.length ? '<button class="btn primary" id="confirmCollAddBtn" style="margin-top:14px;">✓ Add Selected</button>' : ''}
     <button class="btn ghost" id="collPickerBackBtn" style="margin-top:10px;">← Back</button>
@@ -1229,7 +1264,11 @@ async function renderBattleCollectionPicker(battleId, team){
       const selected = list.filter((u, i) => document.querySelector(`.collPickCheck[data-idx="${i}"]`).checked);
       if(!selected.length) return;
       for(const u of selected){
-        await addUnitToBattle(battleId, team, u);
+        if(u.isFolder){
+          for(const sub of u.units){ await addUnitToBattle(battleId, team, sub); }
+        } else {
+          await addUnitToBattle(battleId, team, u);
+        }
       }
       renderBattleDetail(battleId);
     };
@@ -1453,22 +1492,32 @@ async function renderCollectionList(){
   const list = await loadCollection();
 
   const emptyNote = `<div class="noteBox">No saved units yet. Open any datasheet and tap "Save to My Collection" to keep it here — reopen it anytime, or add it straight into a battle without rescanning.</div>`;
-  const cards = list.map(u => u.isTextList ? `
-    <div class="libCard" data-id="${u.id}">
-      <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
-      <div class="libMeta">Text document</div>
-      <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
-    </div>
-  ` : `
-    <div class="libCard" data-id="${u.id}">
-      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
-      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-      <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
-    </div>
-  `).join('');
+  const cards = list.map(u => {
+    if(u.isFolder) return `
+      <div class="libCard" data-id="${u.id}">
+        <div class="libName">🗂 ${escapeHtml(u.folderName || 'Army List Units')}</div>
+        <div class="libMeta">${u.units.length} unit${u.units.length===1?'':'s'}</div>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+    if(u.isTextList) return `
+      <div class="libCard" data-id="${u.id}">
+        <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+        <div class="libMeta">Text document</div>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+    return `
+      <div class="libCard" data-id="${u.id}">
+        <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+  }).join('');
 
   main.innerHTML = `
-    ${list.length ? '<div class="noteBox">Tap a saved unit or list to reopen it.</div>' + cards : emptyNote}
+    ${list.length ? '<div class="noteBox">Tap a saved unit, folder, or list to reopen it.</div>' + cards : emptyNote}
     <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
   `;
 
@@ -1477,7 +1526,8 @@ async function renderCollectionList(){
     if(card){
       card.addEventListener('click', (e) => {
         if(e.target.closest('[data-del]')) return;
-        if(u.isTextList) renderTextListView(u, renderCollectionList, '← Back to Collection');
+        if(u.isFolder) renderCollectionFolderView(u);
+        else if(u.isTextList) renderTextListView(u, renderCollectionList, '← Back to Collection');
         else renderCollectionUnitView(u);
       });
     }
@@ -1499,6 +1549,39 @@ function renderCollectionUnitView(unit){
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn">← Back to Collection</button>`;
   document.getElementById('collUnitBackBtn').onclick = renderCollectionList;
+}
+
+// A folder groups the units from one list upload together — this view
+// lists what's inside, same pattern as My Collection itself but scoped to
+// just this folder's units.
+function renderCollectionFolderView(entry){
+  clearFooter();
+  setStatus('', 'STANDBY');
+  const rows = entry.units.map((u, i) => `
+    <div class="libCard" data-idx="${i}">
+      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+    </div>
+  `).join('');
+  main.innerHTML = `
+    <div class="noteBox">🗂 <strong>${escapeHtml(entry.folderName || 'Army List Units')}</strong> — ${entry.units.length} unit${entry.units.length===1?'':'s'}. Tap a unit to view its full datasheet.</div>
+    ${rows}
+  `;
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="collFolderBackBtn">← Back to Collection</button>`;
+  entry.units.forEach((u, i) => {
+    const card = main.querySelector(`.libCard[data-idx="${i}"]`);
+    if(card) card.addEventListener('click', () => renderCollectionFolderUnitView(entry, u));
+  });
+  document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
+}
+
+function renderCollectionFolderUnitView(entry, unit){
+  setStatus('', 'STANDBY');
+  main.innerHTML = buildDatasheetSheetHtml(unit);
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn">← Back to Folder</button>`;
+  document.getElementById('collFolderUnitBackBtn').onclick = () => renderCollectionFolderView(entry);
 }
 
 // Read-only view of a saved text-list entry — just the pasted list text,
