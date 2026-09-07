@@ -1119,7 +1119,7 @@ async function renderBattleDetail(battleId){
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
     ${buildTeamHtml(battle.opponentUnits, 'opponent')}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
-    <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">📷 Scan a Unit</button>
+    <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
   `;
@@ -1288,6 +1288,12 @@ async function renderBattleCollectionPicker(battleId, team){
       for(const u of selected){
         if(u.isFolder){
           for(const sub of u.units){ await addUnitToBattle(battleId, team, sub); }
+          // The folder's own list text comes along too, as its own card in
+          // the roster — otherwise there'd be no way to look at the full
+          // list again once its units are split out into the battle.
+          if(u.rawText){
+            await addUnitToBattle(battleId, team, { isTextList: true, listName: u.folderName, rawText: u.rawText });
+          }
         } else {
           await addUnitToBattle(battleId, team, u);
         }
@@ -1331,7 +1337,7 @@ async function renderShareRosterQr(battleId, team){
   }
 
   main.innerHTML = `
-    <div class="noteBox">Have your opponent open <strong>Battles → Scan a Unit → Import Roster via QR</strong> and point their camera at this code to pull in ${units.length} unit${units.length===1?'':'s'} from <strong>${escapeHtml(teamLabel)}</strong> — no rescanning needed on their end. Each unit gets freshly looked up on import, same as searching it by name.</div>
+    <div class="noteBox">Have your opponent open <strong>Battles → Add Units → Import Roster via QR</strong> and point their camera at this code to pull in ${units.length} unit${units.length===1?'':'s'} from <strong>${escapeHtml(teamLabel)}</strong> — no rescanning needed on their end. Each unit gets freshly looked up on import, same as searching it by name.</div>
     <div style="display:flex; justify-content:center; padding:16px 0;">
       <img src="${qrDataUrl}" alt="Roster QR code" style="width:100%; max-width:280px; border-radius:4px;"/>
     </div>
