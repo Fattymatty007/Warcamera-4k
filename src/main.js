@@ -524,6 +524,7 @@ function parseArmyListText(text){
   // real Warhammer unit names never contain these words — a title does.
   const titleWordRe = /\b(army|list|roster|crusade|detachment|patrol|incursion|strike force|onslaught)\b/i;
   const units = [];
+  let title = null;
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
   // lines right after an explicit "Wargear Options:" label, with no bullet
   // to distinguish them from a real unit header — track that block so
@@ -561,25 +562,32 @@ function parseArmyListText(text){
     if(isFirstContentLine){
       const nextLine = (lines[li+1] || '').trim();
       const nextIsAnotherUnit = nextLine && headerRe.test(nextLine);
-      if(!nextIsAnotherUnit) continue;
+      if(!nextIsAnotherUnit){
+        // Capture the title's own text (e.g. "Chaos - Chaos Daemons -
+        // Plague Legion") so it can be offered as the default folder name
+        // below, instead of just discarding it.
+        const titleName = m[1].trim().replace(/\s{2,}/g, ' ');
+        if(titleName) title = titleName;
+        continue;
+      }
     }
     const name = m[1].trim().replace(/\s{2,}/g, ' ');
     if(!name || titleWordRe.test(name)) continue;
     // No dedup by name here — a real roster can legitimately field the
     // same unit choice more than once (e.g. two separate Nurglings units),
     // each a distinct entry in the confirm screen below.
-    units.push({ n: name });
+    units.push({ n: name, pts: Number(m[2]) || 0 });
   }
-  return units;
+  return { units, title };
 }
 
 function handleArmyListFile(text){
-  const units = parseArmyListText(text);
+  const { units, title } = parseArmyListText(text);
   if(!units.length){
     renderArmyListParseError(`Didn't recognize any units in that list.`, text);
     return;
   }
-  renderArmyListConfirm(units, text);
+  renderArmyListConfirm(units, text, title);
 }
 
 function renderArmyListParseError(message, rawText){
@@ -604,7 +612,7 @@ function renderArmyListParseError(message, rawText){
 // selectable units — no separate name field or second button — so adding
 // it to My Collection is exactly the same one-tap action as adding any of
 // the individual units found in it.
-function renderArmyListConfirm(units, rawText){
+function renderArmyListConfirm(units, rawText, title){
   setStatus('', 'STANDBY');
   const rows = units.map((u, i) => `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
@@ -613,20 +621,16 @@ function renderArmyListConfirm(units, rawText){
     </label>
   `).join('');
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — the rest get saved together into one folder in My Collection (each unit freshly looked up, same as a name search), so they stay grouped for adding to a battle in one action later.</div>
-    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-      <input type="checkbox" id="listDocCheck" checked style="width:18px; height:18px; flex-shrink:0;"/>
-      <span class="libName" style="margin:0;">📋 Army List</span>
-    </label>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
+    <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${rows}
-    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Add Selected to My Collection</button>
+    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Save to a New Folder</button>
     <button class="btn ghost" id="cancelListImportBtn">✕ Cancel</button>
   `;
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
-    const includeDoc = document.getElementById('listDocCheck').checked;
-    if(!selectedUnits.length && !includeDoc) return;
-    runArmyListImport(selectedUnits, includeDoc ? rawText : null);
+    const folderName = document.getElementById('folderNameInput').value.trim();
+    runArmyListImport(selectedUnits, rawText, folderName, title);
   };
   document.getElementById('cancelListImportBtn').onclick = renderHome;
 }
@@ -642,13 +646,36 @@ function renderTextListSaved(label){
   document.getElementById('listSaveHomeBtn').onclick = renderHome;
 }
 
-async function runArmyListImport(units, rawText){
-  setStatus('busy', 'IMPORTING');
-  let textDocSaved = false;
-  if(rawText){
-    await addTextListToCollection(rawText, 'Army List');
-    textDocSaved = true;
+// Falls back to the list's own title line if it had one, otherwise builds
+// a "<Faction> · <NNN pts> · <Date>" name from what got looked up — the
+// faction most of the selected units share, the list's own stated point
+// total (summed straight from the pasted text, not a rescan), and today's
+// date — so a folder never ends up unnamed just because the user skipped
+// naming it.
+function buildDefaultFolderName(title, units, datasheets){
+  if(title) return title;
+  const totalPts = units.reduce((sum, u) => sum + (u.pts || 0), 0);
+  const factionCounts = {};
+  for(const d of datasheets){
+    const f = (d.faction || '').trim();
+    if(!f) continue;
+    factionCounts[f] = (factionCounts[f] || 0) + 1;
   }
+  let topFaction = '';
+  let topCount = 0;
+  for(const [f, c] of Object.entries(factionCounts)){
+    if(c > topCount){ topFaction = f; topCount = c; }
+  }
+  const dateStr = formatBattleDate(new Date().toISOString().slice(0,10));
+  const parts = [];
+  if(topFaction) parts.push(topFaction);
+  if(totalPts) parts.push(`${totalPts} pts`);
+  parts.push(dateStr);
+  return parts.join(' · ');
+}
+
+async function runArmyListImport(units, rawText, folderName, title){
+  setStatus('busy', 'IMPORTING');
   const datasheets = [];
   const failed = [];
   for(let i=0;i<units.length;i++){
@@ -660,20 +687,15 @@ async function runArmyListImport(units, rawText){
       failed.push(units[i].n);
     }
   }
-  // Every unit from this list goes into one shared folder instead of being
-  // scattered flat into My Collection — keeps them grouped so the whole
-  // folder can be added to a battle roster in one action later, instead of
-  // hunting through individually-scanned units mixed in with everything else.
-  if(datasheets.length){
-    await addUnitsToCollectionFolder(datasheets, 'Army List Units');
-  }
+  // Every list upload creates exactly one new folder — the selected units
+  // (freshly looked up) plus the full pasted text, kept together instead of
+  // scattered flat into My Collection, so the whole thing can be added to a
+  // battle roster in one action later.
+  const finalName = folderName || buildDefaultFolderName(title, units, datasheets);
+  await addUnitsToCollectionFolder(datasheets, finalName, rawText);
   setStatus('', 'LINK ESTABLISHED');
-  const parts = [];
-  if(datasheets.length) parts.push(`${datasheets.length} unit${datasheets.length===1?'':'s'} into a new folder`);
-  if(textDocSaved) parts.push('the full list as a text document');
-  const summary = parts.length ? `Saved ${parts.join(' and ')} in My Collection.` : `Nothing was saved.`;
   main.innerHTML = `
-    <div class="noteBox">${summary}${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unit${datasheets.length===1?'':'s'} plus the full list text.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
     <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
   `;
@@ -1000,9 +1022,9 @@ async function addTextListToCollection(rawText, label){
 // together as one Collection entry — acts like a unit entry (same card,
 // same picker row when adding to a battle), but selecting it in a battle
 // expands into every unit it contains instead of adding just one.
-async function addUnitsToCollectionFolder(datasheets, label){
+async function addUnitsToCollectionFolder(datasheets, label, rawText){
   const list = await loadCollection();
-  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets };
+  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets, rawText: rawText || '' };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -1565,6 +1587,7 @@ function renderCollectionFolderView(entry){
   `).join('');
   main.innerHTML = `
     <div class="noteBox">🗂 <strong>${escapeHtml(entry.folderName || 'Army List Units')}</strong> — ${entry.units.length} unit${entry.units.length===1?'':'s'}. Tap a unit to view its full datasheet.</div>
+    ${entry.rawText ? '<button class="btn gold" id="folderViewTextBtn" style="margin-bottom:10px;">📋 View Full List Text</button>' : ''}
     ${rows}
   `;
   footer.style.display = 'flex';
@@ -1573,6 +1596,11 @@ function renderCollectionFolderView(entry){
     const card = main.querySelector(`.libCard[data-idx="${i}"]`);
     if(card) card.addEventListener('click', () => renderCollectionFolderUnitView(entry, u));
   });
+  if(entry.rawText){
+    document.getElementById('folderViewTextBtn').onclick = () => {
+      renderTextListView({ listName: entry.folderName, rawText: entry.rawText }, () => renderCollectionFolderView(entry), '← Back to Folder');
+    };
+  }
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
 }
 
