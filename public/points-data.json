@@ -1,8 +1,8 @@
 {
-  "version": "1.3",
+  "version": "1.4",
   "sourceUrl": "https://mfm.warhammer-community.com/en",
-  "updatedAt": "2026-09-01T00:04:58.186Z",
-  "unitCount": 859,
+  "updatedAt": "2026-09-07T17:15:41.522Z",
+  "unitCount": 900,
   "units": {
     "aestred thurga and agathae dolan": {
       "displayName": "AESTRED THURGA AND AGATHAE DOLAN",
@@ -179,9 +179,9 @@
       "points": "55 pts (1 model)",
       "faction": "adeptus-custodes"
     },
-    "10 340 pts": {
-      "displayName": "▲ (+10) 340 pts",
-      "points": "140 pts (2 models) / 195 pts (3 models) / 310 pts (5 models) / 370 pts (6 models)",
+    "allarus custodians": {
+      "displayName": "ALLARUS CUSTODIANS",
+      "points": "110 pts (2 models) / 165 pts (3 models) / 280 pts (5 models) / 340 pts (6 models) / 140 pts (2 models) / 195 pts (3 models) / 310 pts (5 models) / 370 pts (6 models)",
       "faction": "adeptus-custodes"
     },
     "anathema psykana rhino": {
@@ -309,6 +309,11 @@
       "points": "220 pts (1 model) / 240 pts (1 model)",
       "faction": "adeptus-custodes"
     },
+    "vertus praetors": {
+      "displayName": "VERTUS PRAETORS",
+      "points": "145 pts (2 models) / 215 pts (3 models) / 170 pts (2 models) / 240 pts (3 models)",
+      "faction": "adeptus-custodes"
+    },
     "vigilators": {
       "displayName": "VIGILATORS",
       "points": "50 pts (4 models) / 55 pts (5 models) / 90 pts (9 models) / 100 pts (10 models)",
@@ -369,9 +374,9 @@
       "points": "80 pts (1 model) / 160 pts (2 models) / 250 pts (3 models) / 95 pts (1 model) / 175 pts (2 models) / 265 pts (3 models)",
       "faction": "adeptus-mechanicus"
     },
-    "20 300 pts": {
-      "displayName": "▼ (-20) 300 pts",
-      "points": "180 pts (2 models)",
+    "kastelan robots": {
+      "displayName": "KASTELAN ROBOTS",
+      "points": "150 pts (2 models) / 300 pts (4 models) / 180 pts (2 models) / 330 pts (4 models)",
       "faction": "adeptus-mechanicus"
     },
     "kataphron breachers": {
@@ -389,6 +394,16 @@
       "points": "155 pts (1 model)",
       "faction": "adeptus-mechanicus"
     },
+    "pteraxii skystalkers": {
+      "displayName": "PTERAXII SKYSTALKERS",
+      "points": "75 pts (5 models) / 150 pts (10 models) / 85 pts (5 models) / 160 pts (10 models)",
+      "faction": "adeptus-mechanicus"
+    },
+    "pteraxii sterylizors": {
+      "displayName": "PTERAXII STERYLIZORS",
+      "points": "75 pts (5 models) / 150 pts (10 models) / 85 pts (5 models) / 160 pts (10 models)",
+      "faction": "adeptus-mechanicus"
+    },
     "serberys raiders": {
       "displayName": "SERBERYS RAIDERS",
       "points": "60 pts (3 models) / 110 pts (6 models)",
@@ -397,6 +412,11 @@
     "serberys sulphurhounds": {
       "displayName": "SERBERYS SULPHURHOUNDS",
       "points": "55 pts (3 models) / 100 pts (6 models)",
+      "faction": "adeptus-mechanicus"
+    },
+    "servitor battleclade": {
+      "displayName": "SERVITOR BATTLECLADE",
+      "points": "65 pts (9 models) / 75 pts (9 models)",
       "faction": "adeptus-mechanicus"
     },
     "sicarian infiltrators": {
@@ -452,6 +472,11 @@
     "technoarcheologist": {
       "displayName": "TECHNOARCHEOLOGIST",
       "points": "45 pts (1 model)",
+      "faction": "adeptus-mechanicus"
+    },
+    "tech priest dominus": {
+      "displayName": "TECH-PRIEST DOMINUS",
+      "points": "60 pts (1 model)",
       "faction": "adeptus-mechanicus"
     },
     "tech priest enginseer": {
@@ -519,14 +544,29 @@
       "points": "160 pts (1 model)",
       "faction": "aeldari"
     },
+    "dark reapers": {
+      "displayName": "DARK REAPERS",
+      "points": "95 pts (5 models) / 200 pts (10 models)",
+      "faction": "aeldari"
+    },
     "d cannon platform": {
       "displayName": "D-CANNON PLATFORM",
       "points": "110 pts (1 model) / 125 pts (1 model)",
       "faction": "aeldari"
     },
+    "dire avengers": {
+      "displayName": "DIRE AVENGERS",
+      "points": "70 pts (5 models) / 140 pts (10 models)",
+      "faction": "aeldari"
+    },
     "dragon knights": {
       "displayName": "DRAGON KNIGHTS",
       "points": "90 pts (3 models) / 180 pts (6 models)",
+      "faction": "aeldari"
+    },
+    "eldrad ulthran": {
+      "displayName": "ELDRAD ULTHRAN",
+      "points": "120 pts (1 model)",
       "faction": "aeldari"
     },
     "falcon": {
@@ -629,6 +669,11 @@
       "points": "90 pts (3 models) / 175 pts (6 models)",
       "faction": "aeldari"
     },
+    "spiritseer": {
+      "displayName": "SPIRITSEER",
+      "points": "50 pts (1 model)",
+      "faction": "aeldari"
+    },
     "starfangs": {
       "displayName": "STARFANGS",
       "points": "70 pts (1 model) / 140 pts (2 models)",
@@ -637,6 +682,11 @@
     "stonesinger": {
       "displayName": "STONESINGER",
       "points": "60 pts (1 model)",
+      "faction": "aeldari"
+    },
+    "storm guardians": {
+      "displayName": "STORM GUARDIANS",
+      "points": "100 pts (11 models)",
       "faction": "aeldari"
     },
     "striking scorpions": {
@@ -659,14 +709,29 @@
       "points": "75 pts (1 model) / 140 pts (2 models)",
       "faction": "aeldari"
     },
+    "warlock": {
+      "displayName": "WARLOCK",
+      "points": "40 pts (1 model)",
+      "faction": "aeldari"
+    },
     "warlock conclave": {
       "displayName": "WARLOCK CONCLAVE",
       "points": "55 pts (2 models) / 120 pts (4 models)",
       "faction": "aeldari"
     },
+    "warlock skyrunners": {
+      "displayName": "WARLOCK SKYRUNNERS",
+      "points": "45 pts (1 model) / 90 pts (2 models)",
+      "faction": "aeldari"
+    },
     "warp spiders": {
       "displayName": "WARP SPIDERS",
       "points": "105 pts (5 models) / 200 pts (10 models) / 125 pts (5 models) / 220 pts (10 models)",
+      "faction": "aeldari"
+    },
+    "war walkers": {
+      "displayName": "WAR WALKERS",
+      "points": "80 pts (1 model) / 160 pts (2 models)",
       "faction": "aeldari"
     },
     "wave serpent": {
@@ -742,6 +807,11 @@
     "voidweaver": {
       "displayName": "VOIDWEAVER",
       "points": "115 pts (1 model)",
+      "faction": "aeldari"
+    },
+    "the visarch": {
+      "displayName": "THE VISARCH",
+      "points": "80 pts (1 model)",
       "faction": "aeldari"
     },
     "the yncarne": {
@@ -864,9 +934,24 @@
       "points": "80 pts (10 models)",
       "faction": "astra-militarum"
     },
+    "cadian shock troops": {
+      "displayName": "CADIAN SHOCK TROOPS",
+      "points": "70 pts (10 models) / 145 pts (20 models)",
+      "faction": "astra-militarum"
+    },
     "catachan command squad": {
       "displayName": "CATACHAN COMMAND SQUAD",
       "points": "60 pts (5 models)",
+      "faction": "astra-militarum"
+    },
+    "catachan heavy weapons squad": {
+      "displayName": "CATACHAN HEAVY WEAPONS SQUAD",
+      "points": "70 pts (3 models)",
+      "faction": "astra-militarum"
+    },
+    "catachan jungle fighters": {
+      "displayName": "CATACHAN JUNGLE FIGHTERS",
+      "points": "70 pts (10 models) / 135 pts (20 models)",
       "faction": "astra-militarum"
     },
     "centaur rsv": {
@@ -902,6 +987,11 @@
     "cyclops demolition vehicle": {
       "displayName": "CYCLOPS DEMOLITION VEHICLE",
       "points": "40 pts (1 model) / 45 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "death korps of krieg": {
+      "displayName": "DEATH KORPS OF KRIEG",
+      "points": "70 pts (10 models) / 135 pts (20 models)",
       "faction": "astra-militarum"
     },
     "death riders": {
@@ -962,6 +1052,51 @@
     "krieg command squad": {
       "displayName": "KRIEG COMMAND SQUAD",
       "points": "60 pts (6 models)",
+      "faction": "astra-militarum"
+    },
+    "krieg heavy weapons squad": {
+      "displayName": "KRIEG HEAVY WEAPONS SQUAD",
+      "points": "70 pts (4 models)",
+      "faction": "astra-militarum"
+    },
+    "leman russ battle tank": {
+      "displayName": "LEMAN RUSS BATTLE TANK",
+      "points": "160 pts (1 model) / 175 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ commander": {
+      "displayName": "LEMAN RUSS COMMANDER",
+      "points": "195 pts (1 model) / 210 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ demolisher": {
+      "displayName": "LEMAN RUSS DEMOLISHER",
+      "points": "160 pts (1 model) / 175 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ eradicator": {
+      "displayName": "LEMAN RUSS ERADICATOR",
+      "points": "145 pts (1 model) / 160 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ executioner": {
+      "displayName": "LEMAN RUSS EXECUTIONER",
+      "points": "145 pts (1 model) / 160 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ exterminator": {
+      "displayName": "LEMAN RUSS EXTERMINATOR",
+      "points": "160 pts (1 model) / 175 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ punisher": {
+      "displayName": "LEMAN RUSS PUNISHER",
+      "points": "130 pts (1 model) / 145 pts (1 model)",
+      "faction": "astra-militarum"
+    },
+    "leman russ vanquisher": {
+      "displayName": "LEMAN RUSS VANQUISHER",
+      "points": "130 pts (1 model) / 145 pts (1 model)",
       "faction": "astra-militarum"
     },
     "lord marshal dreir": {
@@ -1154,9 +1289,9 @@
       "points": "100 pts (5 models) / 200 pts (10 models)",
       "faction": "space-wolves"
     },
-    "10 250 pts": {
-      "displayName": "▼ (-10) 250 pts",
-      "points": "120 pts (4 models) / 145 pts (5 models)",
+    "sword brethren squad": {
+      "displayName": "SWORD BRETHREN SQUAD",
+      "points": "100 pts (4 models) / 125 pts (5 models) / 225 pts (9 models) / 250 pts (10 models) / 120 pts (4 models) / 145 pts (5 models) / 245 pts (9 models) / 270 pts (10 models)",
       "faction": "black-templars"
     },
     "terminator squad": {
@@ -1384,6 +1519,11 @@
       "points": "220 pts (1 model) / 240 pts (1 model)",
       "faction": "space-wolves"
     },
+    "land raider redeemer": {
+      "displayName": "LAND RAIDER REDEEMER",
+      "points": "260 pts (1 model) / 280 pts (1 model)",
+      "faction": "space-wolves"
+    },
     "land speeder": {
       "displayName": "LAND SPEEDER",
       "points": "105 pts (1 model)",
@@ -1569,14 +1709,29 @@
       "points": "80 pts (5 models) / 155 pts (10 models) / 90 pts (5 models) / 165 pts (10 models)",
       "faction": "blood-angels"
     },
+    "death company marines with jump packs": {
+      "displayName": "DEATH COMPANY MARINES WITH JUMP PACKS",
+      "points": "115 pts (5 models) / 230 pts (10 models) / 130 pts (5 models) / 245 pts (10 models)",
+      "faction": "blood-angels"
+    },
     "lemartes": {
       "displayName": "LEMARTES",
       "points": "100 pts (1 model)",
       "faction": "blood-angels"
     },
+    "sanguinary guard": {
+      "displayName": "SANGUINARY GUARD",
+      "points": "120 pts (3 models) / 260 pts (6 models) / 140 pts (3 models) / 280 pts (6 models)",
+      "faction": "blood-angels"
+    },
     "sanguinary priest": {
       "displayName": "SANGUINARY PRIEST",
       "points": "75 pts (1 model) / 85 pts (1 model)",
+      "faction": "blood-angels"
+    },
+    "the sanguinor": {
+      "displayName": "THE SANGUINOR",
+      "points": "120 pts (1 model)",
       "faction": "blood-angels"
     },
     "librarian": {
@@ -1589,10 +1744,25 @@
       "points": "70 pts (1 model)",
       "faction": "space-wolves"
     },
+    "librarian in terminator armour": {
+      "displayName": "LIBRARIAN IN TERMINATOR ARMOUR",
+      "points": "85 pts (1 model)",
+      "faction": "space-wolves"
+    },
+    "beasts of nurgle": {
+      "displayName": "BEASTS OF NURGLE",
+      "points": "70 pts (1 model) / 140 pts (2 models)",
+      "faction": "death-guard"
+    },
     "be lakor": {
       "displayName": "BE’LAKOR",
       "points": "390 pts (1 model)",
       "faction": "chaos-daemons"
+    },
+    "bloodcrushers": {
+      "displayName": "BLOODCRUSHERS",
+      "points": "95 pts (3 models) / 190 pts (6 models) / 115 pts (3 models) / 210 pts (6 models)",
+      "faction": "world-eaters"
     },
     "bloodletters": {
       "displayName": "BLOODLETTERS",
@@ -1624,10 +1794,15 @@
       "points": "60 pts (1 model)",
       "faction": "chaos-daemons"
     },
-    "15 115 pts": {
-      "displayName": "▲ (+15) 115 pts",
-      "points": "125 pts (1 model)",
+    "contorted epitome": {
+      "displayName": "CONTORTED EPITOME",
+      "points": "115 pts (1 model) / 125 pts (1 model)",
       "faction": "chaos-daemons"
+    },
+    "daemonettes": {
+      "displayName": "DAEMONETTES",
+      "points": "100 pts (10 models)",
+      "faction": "emperors-children"
     },
     "daemon prince of chaos": {
       "displayName": "DAEMON PRINCE OF CHAOS",
@@ -1659,10 +1834,10 @@
       "points": "100 pts (1 model)",
       "faction": "chaos-daemons"
     },
-    "10 190 pts": {
-      "displayName": "▲ (+10) 190 pts",
-      "points": "105 pts (3 models) / 205 pts (6 models)",
-      "faction": "chaos-daemons"
+    "fiends": {
+      "displayName": "FIENDS",
+      "points": "90 pts (3 models) / 190 pts (6 models)",
+      "faction": "emperors-children"
     },
     "flamers": {
       "displayName": "FLAMERS",
@@ -1709,6 +1884,11 @@
       "points": "70 pts (1 model)",
       "faction": "chaos-daemons"
     },
+    "keeper of secrets": {
+      "displayName": "KEEPER OF SECRETS",
+      "points": "265 pts (1 model) / 280 pts (1 model)",
+      "faction": "emperors-children"
+    },
     "lord of change": {
       "displayName": "LORD OF CHANGE",
       "points": "320 pts (1 model) / 340 pts (1 model)",
@@ -1734,9 +1914,14 @@
       "points": "110 pts (3 models) / 220 pts (6 models)",
       "faction": "death-guard"
     },
-    "5 60 pts": {
-      "displayName": "▲ (+5) 60 pts",
-      "points": "70 pts (1 model)",
+    "poxbringer": {
+      "displayName": "POXBRINGER",
+      "points": "60 pts (1 model) / 70 pts (1 model)",
+      "faction": "chaos-daemons"
+    },
+    "rendmaster on blood throne": {
+      "displayName": "RENDMASTER ON BLOOD THRONE",
+      "points": "160 pts (1 model) / 180 pts (1 model)",
       "faction": "chaos-daemons"
     },
     "rotigus": {
@@ -1748,6 +1933,11 @@
       "displayName": "SCREAMERS",
       "points": "80 pts (3 models) / 160 pts (6 models)",
       "faction": "thousand-sons"
+    },
+    "seekers": {
+      "displayName": "SEEKERS",
+      "points": "85 pts (5 models) / 155 pts (10 models)",
+      "faction": "emperors-children"
     },
     "shalaxi helbane": {
       "displayName": "SHALAXI HELBANE",
@@ -1762,6 +1952,11 @@
     "skull altar": {
       "displayName": "SKULL ALTAR",
       "points": "105 pts (1 model)",
+      "faction": "chaos-daemons"
+    },
+    "skull cannon": {
+      "displayName": "SKULL CANNON",
+      "points": "100 pts (1 model)",
       "faction": "chaos-daemons"
     },
     "skullmaster": {
@@ -1834,14 +2029,19 @@
       "points": "370 pts (1 model) / 385 pts (1 model)",
       "faction": "chaos-knights"
     },
-    "10 385 pts": {
-      "displayName": "▼ (-10) 385 pts",
-      "points": "415 pts (1 model)",
+    "chaos cerastus knight atrapos": {
+      "displayName": "CHAOS CERASTUS KNIGHT ATRAPOS",
+      "points": "385 pts (1 model) / 415 pts (1 model)",
       "faction": "chaos-knights"
     },
     "chaos cerastus knight castigator": {
       "displayName": "CHAOS CERASTUS KNIGHT CASTIGATOR",
       "points": "370 pts (1 model) / 385 pts (1 model)",
+      "faction": "chaos-knights"
+    },
+    "chaos cerastus knight lancer": {
+      "displayName": "CHAOS CERASTUS KNIGHT LANCER",
+      "points": "385 pts (1 model) / 415 pts (1 model)",
       "faction": "chaos-knights"
     },
     "chaos questoris knight magaera": {
@@ -1864,6 +2064,16 @@
       "points": "355 pts (1 model) / 370 pts (1 model)",
       "faction": "chaos-knights"
     },
+    "knight despoiler": {
+      "displayName": "KNIGHT DESPOILER",
+      "points": "360 pts (1 model) / 390 pts (1 model)",
+      "faction": "chaos-knights"
+    },
+    "knight rampager": {
+      "displayName": "KNIGHT RAMPAGER",
+      "points": "355 pts (1 model) / 370 pts (1 model)",
+      "faction": "chaos-knights"
+    },
     "knight ruinator": {
       "displayName": "KNIGHT RUINATOR",
       "points": "340 pts (1 model) / 355 pts (1 model)",
@@ -1874,6 +2084,11 @@
       "points": "400 pts (1 model) / 420 pts (1 model)",
       "faction": "chaos-knights"
     },
+    "war dog brigand": {
+      "displayName": "WAR DOG BRIGAND",
+      "points": "135 pts (1 model)",
+      "faction": "chaos-knights"
+    },
     "war dog executioner": {
       "displayName": "WAR DOG EXECUTIONER",
       "points": "130 pts (1 model)",
@@ -1882,6 +2097,11 @@
     "war dog huntsman": {
       "displayName": "WAR DOG HUNTSMAN",
       "points": "135 pts (1 model)",
+      "faction": "chaos-knights"
+    },
+    "war dog karnivore": {
+      "displayName": "WAR DOG KARNIVORE",
+      "points": "145 pts (1 model)",
       "faction": "chaos-knights"
     },
     "war dog moirax": {
@@ -1988,6 +2208,11 @@
       "displayName": "DARK COMMUNE",
       "points": "90 pts (5 models) / 100 pts (5 models)",
       "faction": "chaos-space-marines"
+    },
+    "defiler": {
+      "displayName": "DEFILER",
+      "points": "270 pts (1 model) / 310 pts (1 model)",
+      "faction": "world-eaters"
     },
     "fabius bile": {
       "displayName": "FABIUS BILE",
@@ -2121,13 +2346,13 @@
     },
     "sorcerer": {
       "displayName": "SORCERER",
-      "points": "55 pts (1 model)",
-      "faction": "emperors-children"
+      "points": "95 pts (1 model) / 105 pts (1 model)",
+      "faction": "thousand-sons"
     },
     "sorcerer in terminator armour": {
       "displayName": "SORCERER IN TERMINATOR ARMOUR",
-      "points": "80 pts (1 model)",
-      "faction": "chaos-space-marines"
+      "points": "100 pts (1 model) / 110 pts (1 model)",
+      "faction": "thousand-sons"
     },
     "traitor enforcer": {
       "displayName": "TRAITOR ENFORCER",
@@ -2214,6 +2439,11 @@
       "points": "180 pts (1 model)",
       "faction": "dark-angels"
     },
+    "ravenwing black knights": {
+      "displayName": "RAVENWING BLACK KNIGHTS",
+      "points": "75 pts (3 models) / 150 pts (6 models) / 85 pts (3 models) / 160 pts (6 models)",
+      "faction": "dark-angels"
+    },
     "ravenwing command squad": {
       "displayName": "RAVENWING COMMAND SQUAD",
       "points": "105 pts (3 models) / 115 pts (3 models)",
@@ -2229,9 +2459,19 @@
       "points": "200 pts (1 model)",
       "faction": "dark-angels"
     },
+    "sammael": {
+      "displayName": "SAMMAEL",
+      "points": "105 pts (1 model)",
+      "faction": "dark-angels"
+    },
     "biologus putrifier": {
       "displayName": "BIOLOGUS PUTRIFIER",
       "points": "60 pts (1 model)",
+      "faction": "death-guard"
+    },
+    "blightlord terminators": {
+      "displayName": "BLIGHTLORD TERMINATORS",
+      "points": "115 pts (3 models) / 180 pts (5 models) / 360 pts (10 models)",
       "faction": "death-guard"
     },
     "daemon prince of nurgle": {
@@ -2257,6 +2497,11 @@
     "foetid bloat drone with heavy blight launcher": {
       "displayName": "FOETID BLOAT-DRONE WITH HEAVY BLIGHT LAUNCHER",
       "points": "125 pts (1 model) / 135 pts (1 model)",
+      "faction": "death-guard"
+    },
+    "foul blightspawn": {
+      "displayName": "FOUL BLIGHTSPAWN",
+      "points": "60 pts (1 model)",
       "faction": "death-guard"
     },
     "icon bearer": {
@@ -2289,6 +2534,26 @@
       "points": "105 pts (1 model)",
       "faction": "death-guard"
     },
+    "mortarion": {
+      "displayName": "MORTARION",
+      "points": "375 pts (1 model)",
+      "faction": "death-guard"
+    },
+    "myphitic blight haulers": {
+      "displayName": "MYPHITIC BLIGHT-HAULERS",
+      "points": "95 pts (1 model) / 190 pts (2 models)",
+      "faction": "death-guard"
+    },
+    "noxious blightbringer": {
+      "displayName": "NOXIOUS BLIGHTBRINGER",
+      "points": "50 pts (1 model)",
+      "faction": "death-guard"
+    },
+    "plagueburst crawler": {
+      "displayName": "PLAGUEBURST CRAWLER",
+      "points": "170 pts (1 model) / 200 pts (1 model)",
+      "faction": "death-guard"
+    },
     "plague marines": {
       "displayName": "PLAGUE MARINES",
       "points": "90 pts (5 models) / 125 pts (7 models) / 180 pts (10 models)",
@@ -2312,11 +2577,6 @@
     "typhus": {
       "displayName": "TYPHUS",
       "points": "100 pts (1 model)",
-      "faction": "death-guard"
-    },
-    "beasts of nurgle": {
-      "displayName": "BEASTS OF NURGLE",
-      "points": "70 pts (1 model) / 140 pts (2 models)",
       "faction": "death-guard"
     },
     "corvus blackstar": {
@@ -2512,6 +2772,11 @@
     "infractors": {
       "displayName": "INFRACTORS",
       "points": "85 pts (5 models) / 160 pts (10 models)",
+      "faction": "emperors-children"
+    },
+    "lord exultant": {
+      "displayName": "LORD EXULTANT",
+      "points": "90 pts (1 model) / 100 pts (1 model)",
       "faction": "emperors-children"
     },
     "lord kakophonist": {
@@ -2719,6 +2984,16 @@
       "points": "195 pts (1 model) / 210 pts (1 model)",
       "faction": "grey-knights"
     },
+    "paladin squad": {
+      "displayName": "PALADIN SQUAD",
+      "points": "170 pts (4 models) / 215 pts (5 models) / 360 pts (8 models) / 460 pts (10 models) / 210 pts (4 models) / 255 pts (5 models) / 400 pts (8 models) / 500 pts (10 models)",
+      "faction": "grey-knights"
+    },
+    "purgation squad": {
+      "displayName": "PURGATION SQUAD",
+      "points": "105 pts (5 models) / 210 pts (10 models) / 115 pts (5 models) / 220 pts (10 models)",
+      "faction": "grey-knights"
+    },
     "purifier squad": {
       "displayName": "PURIFIER SQUAD",
       "points": "130 pts (5 models) / 260 pts (10 models) / 140 pts (5 models) / 270 pts (10 models)",
@@ -2826,7 +3101,7 @@
     },
     "sisters of battle immolator": {
       "displayName": "SISTERS OF BATTLE IMMOLATOR",
-      "points": "105 pts (1 model) / 115 pts (1 model)",
+      "points": "90 pts (1 model) / 100 pts (1 model)",
       "faction": "imperial-agents"
     },
     "sisters of battle squad": {
@@ -2979,14 +3254,24 @@
       "points": "70 pts (5 models)",
       "faction": "leagues-of-votann"
     },
-    "10 170 pts": {
-      "displayName": "▲ (+10) 170 pts",
-      "points": "90 pts (3 models)",
+    "br khyr thunderkyn": {
+      "displayName": "BRÔKHYR THUNDERKYN",
+      "points": "80 pts (3 models) / 170 pts (6 models) / 90 pts (3 models) / 180 pts (6 models)",
       "faction": "leagues-of-votann"
     },
     "buri aegnirssen": {
       "displayName": "BURI AEGNIRSSEN",
       "points": "85 pts (1 model)",
+      "faction": "leagues-of-votann"
+    },
+    "cthonian beserks": {
+      "displayName": "CTHONIAN BESERKS",
+      "points": "95 pts (5 models) / 190 pts (10 models)",
+      "faction": "leagues-of-votann"
+    },
+    "cthonian earthshakers": {
+      "displayName": "CTHONIAN EARTHSHAKERS",
+      "points": "100 pts (2 models)",
       "faction": "leagues-of-votann"
     },
     "einhyr champion": {
@@ -3004,6 +3289,11 @@
       "points": "65 pts (3 models)",
       "faction": "leagues-of-votann"
     },
+    "hearthkyn warriors": {
+      "displayName": "HEARTHKYN WARRIORS",
+      "points": "90 pts (10 models)",
+      "faction": "leagues-of-votann"
+    },
     "hekaton land fortress": {
       "displayName": "HEKATON LAND FORTRESS",
       "points": "250 pts (1 model) / 265 pts (1 model)",
@@ -3019,6 +3309,16 @@
       "points": "90 pts (10 models)",
       "faction": "leagues-of-votann"
     },
+    "ironkin steeljacks with heavy volkanite disintegrators": {
+      "displayName": "IRONKIN STEELJACKS WITH HEAVY VOLKANITE DISINTEGRATORS",
+      "points": "80 pts (3 models) / 170 pts (6 models) / 90 pts (3 models) / 180 pts (6 models)",
+      "faction": "leagues-of-votann"
+    },
+    "ironkin steeljacks with melee weapons": {
+      "displayName": "IRONKIN STEELJACKS WITH MELEE WEAPONS",
+      "points": "75 pts (3 models) / 150 pts (6 models) / 85 pts (3 models) / 160 pts (6 models)",
+      "faction": "leagues-of-votann"
+    },
     "k hl": {
       "displayName": "KÂHL",
       "points": "65 pts (1 model)",
@@ -3029,9 +3329,9 @@
       "points": "70 pts (1 model) / 80 pts (1 model)",
       "faction": "leagues-of-votann"
     },
-    "10 140 pts": {
-      "displayName": "▲ (+10) 140 pts",
-      "points": "80 pts (1 model) / 150 pts (2 models)",
+    "kapricus defenders": {
+      "displayName": "KAPRICUS DEFENDERS",
+      "points": "70 pts (1 model) / 140 pts (2 models) / 80 pts (1 model) / 150 pts (2 models)",
       "faction": "leagues-of-votann"
     },
     "memnyr strategist": {
@@ -3174,9 +3474,19 @@
       "points": "100 pts (1 model)",
       "faction": "necrons"
     },
-    "5 165 pts": {
-      "displayName": "▲ (+5) 165 pts",
-      "points": "60 pts (1 model) / 110 pts (2 models)",
+    "lokhust destroyers": {
+      "displayName": "LOKHUST DESTROYERS",
+      "points": "40 pts (1 model) / 55 pts (2 models) / 80 pts (3 models) / 175 pts (6 models) / 70 pts (1 model) / 85 pts (2 models) / 110 pts (3 models) / 205 pts (6 models)",
+      "faction": "necrons"
+    },
+    "lokhust heavy destroyers": {
+      "displayName": "LOKHUST HEAVY DESTROYERS",
+      "points": "50 pts (1 model) / 100 pts (2 models) / 165 pts (3 models) / 60 pts (1 model) / 110 pts (2 models) / 175 pts (3 models)",
+      "faction": "necrons"
+    },
+    "lokhust lord": {
+      "displayName": "LOKHUST LORD",
+      "points": "80 pts (1 model)",
       "faction": "necrons"
     },
     "lychguard": {
@@ -3187,6 +3497,11 @@
     "monolith": {
       "displayName": "MONOLITH",
       "points": "420 pts (1 model) / 440 pts (1 model)",
+      "faction": "necrons"
+    },
+    "necron warriors": {
+      "displayName": "NECRON WARRIORS",
+      "points": "85 pts (10 models) / 190 pts (20 models)",
       "faction": "necrons"
     },
     "nekrosor ammentar": {
@@ -3204,9 +3519,9 @@
       "points": "280 pts (1 model) / 310 pts (1 model)",
       "faction": "necrons"
     },
-    "5 150 pts": {
-      "displayName": "▲ (+5) 150 pts",
-      "points": "90 pts (3 models)",
+    "ophydian destroyers": {
+      "displayName": "OPHYDIAN DESTROYERS",
+      "points": "80 pts (3 models) / 150 pts (6 models) / 90 pts (3 models) / 160 pts (6 models)",
       "faction": "necrons"
     },
     "orikan the diviner": {
@@ -3222,6 +3537,11 @@
     "overlord with translocation shroud": {
       "displayName": "OVERLORD WITH TRANSLOCATION SHROUD",
       "points": "90 pts (1 model)",
+      "faction": "necrons"
+    },
+    "plasmancer": {
+      "displayName": "PLASMANCER",
+      "points": "60 pts (1 model)",
       "faction": "necrons"
     },
     "psychomancer": {
@@ -3242,6 +3562,11 @@
     "skorpekh destroyers": {
       "displayName": "SKORPEKH DESTROYERS",
       "points": "85 pts (3 models) / 170 pts (6 models) / 95 pts (3 models) / 180 pts (6 models)",
+      "faction": "necrons"
+    },
+    "skorpekh lord": {
+      "displayName": "SKORPEKH LORD",
+      "points": "95 pts (1 model) / 105 pts (1 model)",
       "faction": "necrons"
     },
     "technomancer": {
@@ -3284,34 +3609,19 @@
       "points": "110 pts (1 model) / 120 pts (1 model)",
       "faction": "necrons"
     },
-    "bannernob": {
-      "displayName": "BANNERNOB",
-      "points": "50 pts (1 model)",
+    "5 150 pts": {
+      "displayName": "▲ (+5) 150 pts",
+      "points": "160 pts (1 model)",
       "faction": "orks"
     },
-    "battlewagon": {
-      "displayName": "BATTLEWAGON",
-      "points": "145 pts (1 model)",
+    "45 140 pts": {
+      "displayName": "▲ (+45) 140 pts",
+      "points": "155 pts (1 model)",
       "faction": "orks"
     },
-    "beastboss": {
-      "displayName": "BEASTBOSS",
-      "points": "80 pts (1 model)",
-      "faction": "orks"
-    },
-    "beastboss on squigosaur": {
-      "displayName": "BEASTBOSS ON SQUIGOSAUR",
-      "points": "95 pts (1 model)",
-      "faction": "orks"
-    },
-    "beast snagga boyz": {
-      "displayName": "BEAST SNAGGA BOYZ",
-      "points": "90 pts (10 models) / 170 pts (20 models)",
-      "faction": "orks"
-    },
-    "bigboss": {
-      "displayName": "BIGBOSS",
-      "points": "55 pts (1 model)",
+    "170 pts": {
+      "displayName": "170 pts",
+      "points": "95 pts (10 models) / 180 pts (20 models)",
       "faction": "orks"
     },
     "big ed bossbunka": {
@@ -3319,59 +3629,14 @@
       "points": "135 pts (1 model)",
       "faction": "orks"
     },
-    "big mek": {
-      "displayName": "BIG MEK",
-      "points": "70 pts (1 model)",
+    "15 85 pts": {
+      "displayName": "▲ (+15) 85 pts",
+      "points": "95 pts (1 model)",
       "faction": "orks"
     },
-    "big mek dakkarig": {
-      "displayName": "BIG MEK DAKKARIG",
-      "points": "115 pts (1 model)",
-      "faction": "orks"
-    },
-    "big mek in mega armour": {
-      "displayName": "BIG MEK IN MEGA ARMOUR",
-      "points": "80 pts (1 model)",
-      "faction": "orks"
-    },
-    "big mek with shokk attack gun": {
-      "displayName": "BIG MEK WITH SHOKK ATTACK GUN",
-      "points": "70 pts (1 model) / 80 pts (1 model)",
-      "faction": "orks"
-    },
-    "blitza bommer": {
-      "displayName": "BLITZA-BOMMER",
-      "points": "105 pts (1 model)",
-      "faction": "orks"
-    },
-    "boomdakka snazzwagon": {
-      "displayName": "BOOMDAKKA SNAZZWAGON",
-      "points": "70 pts (1 model)",
-      "faction": "orks"
-    },
-    "boss snikrot": {
-      "displayName": "BOSS SNIKROT",
-      "points": "75 pts (1 model)",
-      "faction": "orks"
-    },
-    "boyz": {
-      "displayName": "BOYZ",
-      "points": "75 pts (10 models) / 160 pts (20 models) / 85 pts (10 models) / 170 pts (20 models)",
-      "faction": "orks"
-    },
-    "breaka boyz": {
-      "displayName": "BREAKA BOYZ",
-      "points": "125 pts (6 models) / 135 pts (6 models)",
-      "faction": "orks"
-    },
-    "burna bommer": {
-      "displayName": "BURNA-BOMMER",
-      "points": "115 pts (1 model)",
-      "faction": "orks"
-    },
-    "burna boyz": {
-      "displayName": "BURNA BOYZ",
-      "points": "60 pts (5 models) / 120 pts (10 models)",
+    "20 135 pts": {
+      "displayName": "▲ (+20) 135 pts",
+      "points": "145 pts (1 model)",
       "faction": "orks"
     },
     "dakkajet": {
@@ -3379,194 +3644,69 @@
       "points": "125 pts (1 model)",
       "faction": "orks"
     },
-    "deff dread": {
-      "displayName": "DEFF DREAD",
-      "points": "110 pts (1 model) / 120 pts (1 model)",
-      "faction": "orks"
-    },
-    "deffkilla wartrike": {
-      "displayName": "DEFFKILLA WARTRIKE",
-      "points": "70 pts (1 model)",
-      "faction": "orks"
-    },
-    "deffkoptas": {
-      "displayName": "DEFFKOPTAS",
-      "points": "75 pts (3 models) / 140 pts (6 models)",
-      "faction": "orks"
-    },
-    "flash gitz": {
-      "displayName": "FLASH GITZ",
-      "points": "75 pts (5 models) / 150 pts (10 models) / 85 pts (5 models) / 160 pts (10 models)",
-      "faction": "orks"
-    },
-    "gargantuan squiggoth": {
-      "displayName": "GARGANTUAN SQUIGGOTH",
-      "points": "440 pts (1 model) / 490 pts (1 model)",
+    "20 160 pts": {
+      "displayName": "▲ (+20) 160 pts",
+      "points": "90 pts (3 models) / 170 pts (6 models)",
       "faction": "orks"
     },
     "ghazghkull thraka": {
       "displayName": "GHAZGHKULL THRAKA",
-      "points": "235 pts (2 models)",
+      "points": "300 pts (1 model)",
       "faction": "orks"
     },
-    "gorkanaut": {
-      "displayName": "GORKANAUT",
-      "points": "255 pts (1 model) / 275 pts (1 model)",
+    "gunwagon": {
+      "displayName": "GUNWAGON",
+      "points": "150 pts (1 model) / 160 pts (1 model)",
       "faction": "orks"
     },
-    "hunta rig": {
-      "displayName": "HUNTA RIG",
-      "points": "125 pts (1 model)",
-      "faction": "orks"
-    },
-    "killa kans": {
-      "displayName": "KILLA KANS",
-      "points": "120 pts (3 models) / 240 pts (6 models) / 130 pts (3 models) / 250 pts (6 models)",
-      "faction": "orks"
-    },
-    "kill rig": {
-      "displayName": "KILL RIG",
-      "points": "145 pts (1 model)",
-      "faction": "orks"
-    },
-    "kommandos": {
-      "displayName": "KOMMANDOS",
-      "points": "120 pts (10 models)",
-      "faction": "orks"
-    },
-    "kustom boosta blasta": {
-      "displayName": "KUSTOM BOOSTA-BLASTA",
-      "points": "70 pts (1 model)",
-      "faction": "orks"
-    },
-    "lootas": {
-      "displayName": "LOOTAS",
-      "points": "50 pts (5 models) / 100 pts (10 models) / 60 pts (5 models) / 110 pts (10 models)",
-      "faction": "orks"
-    },
-    "meganobz": {
-      "displayName": "MEGANOBZ",
-      "points": "60 pts (2 models) / 90 pts (3 models) / 150 pts (5 models) / 180 pts (6 models) / 80 pts (2 models) / 110 pts (3 models) / 170 pts (5 models) / 200 pts (6 models)",
-      "faction": "orks"
-    },
-    "megatrakk scrapjet": {
-      "displayName": "MEGATRAKK SCRAPJET",
-      "points": "75 pts (1 model)",
-      "faction": "orks"
-    },
-    "mek": {
-      "displayName": "MEK",
-      "points": "55 pts (1 model)",
-      "faction": "orks"
-    },
-    "mek gunz": {
-      "displayName": "MEK GUNZ",
-      "points": "45 pts (1 model) / 90 pts (2 models) / 135 pts (3 models) / 55 pts (1 model) / 100 pts (2 models) / 145 pts (3 models)",
-      "faction": "orks"
-    },
-    "morkanaut": {
-      "displayName": "MORKANAUT",
-      "points": "270 pts (1 model) / 290 pts (1 model)",
-      "faction": "orks"
-    },
-    "mozrog skragbad": {
-      "displayName": "MOZROG SKRAGBAD",
-      "points": "125 pts (1 model)",
-      "faction": "orks"
-    },
-    "nobz": {
-      "displayName": "NOBZ",
-      "points": "105 pts (5 models) / 210 pts (10 models) / 115 pts (5 models) / 220 pts (10 models)",
-      "faction": "orks"
-    },
-    "painboss": {
-      "displayName": "PAINBOSS",
-      "points": "70 pts (1 model)",
-      "faction": "orks"
-    },
-    "painboy": {
-      "displayName": "PAINBOY",
-      "points": "90 pts (1 model)",
-      "faction": "orks"
-    },
-    "rukkatrukk squigbuggy": {
-      "displayName": "RUKKATRUKK SQUIGBUGGY",
-      "points": "85 pts (1 model)",
-      "faction": "orks"
-    },
-    "shokkjump dragsta": {
-      "displayName": "SHOKKJUMP DRAGSTA",
-      "points": "70 pts (1 model)",
-      "faction": "orks"
-    },
-    "squighog boyz": {
-      "displayName": "SQUIGHOG BOYZ",
-      "points": "140 pts (4 models) / 270 pts (8 models)",
-      "faction": "orks"
-    },
-    "stompa": {
-      "displayName": "STOMPA",
-      "points": "600 pts (1 model) / 700 pts (1 model)",
-      "faction": "orks"
-    },
-    "stormboyz": {
-      "displayName": "STORMBOYZ",
-      "points": "65 pts (5 models) / 130 pts (10 models)",
-      "faction": "orks"
-    },
-    "tankbustas": {
-      "displayName": "TANKBUSTAS",
-      "points": "125 pts (6 models) / 135 pts (6 models)",
-      "faction": "orks"
-    },
-    "trukk": {
-      "displayName": "TRUKK",
-      "points": "55 pts (1 model) / 65 pts (1 model)",
-      "faction": "orks"
-    },
-    "warbikers": {
-      "displayName": "WARBIKERS",
-      "points": "60 pts (3 models) / 120 pts (6 models)",
-      "faction": "orks"
-    },
-    "warboss": {
-      "displayName": "WARBOSS",
-      "points": "85 pts (1 model)",
-      "faction": "orks"
-    },
-    "warboss in mega armour": {
-      "displayName": "WARBOSS IN MEGA ARMOUR",
-      "points": "80 pts (1 model)",
-      "faction": "orks"
-    },
-    "wartrakk": {
-      "displayName": "WARTRAKK",
-      "points": "60 pts (1 model)",
-      "faction": "orks"
-    },
-    "wazbom blastajet": {
-      "displayName": "WAZBOM BLASTAJET",
-      "points": "165 pts (1 model)",
-      "faction": "orks"
-    },
-    "wazdakka gutsmek": {
-      "displayName": "WAZDAKKA GUTSMEK",
+    "40 165 pts": {
+      "displayName": "▲ (+40) 165 pts",
       "points": "175 pts (1 model)",
+      "faction": "orks"
+    },
+    "30 175 pts": {
+      "displayName": "▲ (+30) 175 pts",
+      "points": "185 pts (1 model)",
+      "faction": "orks"
+    },
+    "nazdreg": {
+      "displayName": "NAZDREG",
+      "points": "175 pts (1 model)",
+      "faction": "orks"
+    },
+    "10 60 pts": {
+      "displayName": "▼ (-10) 60 pts",
+      "points": "70 pts (1 model)",
+      "faction": "orks"
+    },
+    "runtherd": {
+      "displayName": "RUNTHERD",
+      "points": "10 pts (1 model)",
+      "faction": "orks"
+    },
+    "10 280 pts": {
+      "displayName": "▲ (+10) 280 pts",
+      "points": "160 pts (4 models) / 300 pts (8 models)",
+      "faction": "orks"
+    },
+    "45 125 pts": {
+      "displayName": "▲ (+45) 125 pts",
+      "points": "140 pts (1 model)",
+      "faction": "orks"
+    },
+    "warbuggies": {
+      "displayName": "WARBUGGIES",
+      "points": "70 pts (1 model) / 130 pts (2 models)",
+      "faction": "orks"
+    },
+    "50 215 pts": {
+      "displayName": "▲ (+50) 215 pts",
+      "points": "235 pts (1 model)",
       "faction": "orks"
     },
     "weirdboy": {
       "displayName": "WEIRDBOY",
       "points": "65 pts (1 model)",
-      "faction": "orks"
-    },
-    "wurrboy": {
-      "displayName": "WURRBOY",
-      "points": "60 pts (1 model)",
-      "faction": "orks"
-    },
-    "zodgrod wortsnagga": {
-      "displayName": "ZODGROD WORTSNAGGA",
-      "points": "80 pts (1 model)",
       "faction": "orks"
     },
     "darnath lysander": {
@@ -3597,6 +3737,11 @@
     "adrax agatone": {
       "displayName": "ADRAX AGATONE",
       "points": "80 pts (1 model)",
+      "faction": "space-marines"
+    },
+    "vulkan he stan": {
+      "displayName": "VULKAN HE’STAN",
+      "points": "95 pts (1 model)",
       "faction": "space-marines"
     },
     "aethon shaan": {
@@ -3709,6 +3854,11 @@
       "points": "90 pts (1 model)",
       "faction": "space-wolves"
     },
+    "thunderwolf cavalry": {
+      "displayName": "THUNDERWOLF CAVALRY",
+      "points": "100 pts (3 models) / 200 pts (6 models) / 130 pts (3 models) / 230 pts (6 models)",
+      "faction": "space-wolves"
+    },
     "ulrik the slayer": {
       "displayName": "ULRIK THE SLAYER",
       "points": "70 pts (1 model)",
@@ -3717,6 +3867,11 @@
     "wolf guard battle leader": {
       "displayName": "WOLF GUARD BATTLE LEADER",
       "points": "65 pts (1 model)",
+      "faction": "space-wolves"
+    },
+    "wolf guard terminators": {
+      "displayName": "WOLF GUARD TERMINATORS",
+      "points": "155 pts (5 models) / 310 pts (10 models) / 195 pts (5 models) / 350 pts (10 models)",
       "faction": "space-wolves"
     },
     "wolf priest": {
@@ -3786,6 +3941,11 @@
     },
     "crisis fireknife battlesuits": {
       "displayName": "CRISIS FIREKNIFE BATTLESUITS",
+      "points": "100 pts (3 models) / 110 pts (3 models)",
+      "faction": "tau-empire"
+    },
+    "crisis starscythe battlesuits": {
+      "displayName": "CRISIS STARSCYTHE BATTLESUITS",
       "points": "100 pts (3 models) / 110 pts (3 models)",
       "faction": "tau-empire"
     },
@@ -3919,6 +4079,11 @@
       "points": "790 pts (1 model) / 890 pts (1 model)",
       "faction": "tau-empire"
     },
+    "the twin lance": {
+      "displayName": "THE TWIN LANCE",
+      "points": "230 pts (2 models)",
+      "faction": "tau-empire"
+    },
     "tidewall droneport": {
       "displayName": "TIDEWALL DRONEPORT",
       "points": "85 pts (1 model)",
@@ -3932,6 +4097,11 @@
     "tidewall shieldline": {
       "displayName": "TIDEWALL SHIELDLINE",
       "points": "85 pts (1 model)",
+      "faction": "tau-empire"
+    },
+    "tiger shark": {
+      "displayName": "TIGER SHARK",
+      "points": "395 pts (1 model) / 445 pts (1 model)",
       "faction": "tau-empire"
     },
     "vespid stingwings": {
@@ -3954,9 +4124,19 @@
       "points": "170 pts (1 model) / 180 pts (1 model)",
       "faction": "thousand-sons"
     },
+    "exalted sorcerer": {
+      "displayName": "EXALTED SORCERER",
+      "points": "95 pts (1 model)",
+      "faction": "thousand-sons"
+    },
     "exalted sorcerer on disc of tzeentch": {
       "displayName": "EXALTED SORCERER ON DISC OF TZEENTCH",
       "points": "90 pts (1 model)",
+      "faction": "thousand-sons"
+    },
+    "infernal master": {
+      "displayName": "INFERNAL MASTER",
+      "points": "100 pts (1 model)",
       "faction": "thousand-sons"
     },
     "magnus the red": {
@@ -4029,6 +4209,11 @@
       "points": "80 pts (1 model)",
       "faction": "tyranids"
     },
+    "exocrine": {
+      "displayName": "EXOCRINE",
+      "points": "135 pts (1 model) / 145 pts (1 model)",
+      "faction": "tyranids"
+    },
     "gargoyles": {
       "displayName": "GARGOYLES",
       "points": "80 pts (10 models) / 155 pts (20 models)",
@@ -4089,6 +4274,11 @@
       "points": "60 pts (1 model)",
       "faction": "tyranids"
     },
+    "maleceptor": {
+      "displayName": "MALECEPTOR",
+      "points": "180 pts (1 model) / 190 pts (1 model)",
+      "faction": "tyranids"
+    },
     "mawloc": {
       "displayName": "MAWLOC",
       "points": "135 pts (1 model)",
@@ -4137,6 +4327,11 @@
     "psychophage": {
       "displayName": "PSYCHOPHAGE",
       "points": "110 pts (1 model)",
+      "faction": "tyranids"
+    },
+    "pyrovores": {
+      "displayName": "PYROVORES",
+      "points": "40 pts (1 model) / 70 pts (2 models) / 100 pts (3 models) / 50 pts (1 model) / 80 pts (2 models) / 110 pts (3 models)",
       "faction": "tyranids"
     },
     "raveners": {
@@ -4214,6 +4409,16 @@
       "points": "80 pts (1 model) / 90 pts (1 model)",
       "faction": "tyranids"
     },
+    "tyrannofex": {
+      "displayName": "TYRANNOFEX",
+      "points": "170 pts (1 model) / 180 pts (1 model)",
+      "faction": "tyranids"
+    },
+    "tyrant guard": {
+      "displayName": "TYRANT GUARD",
+      "points": "80 pts (3 models) / 170 pts (6 models)",
+      "faction": "tyranids"
+    },
     "venomthropes": {
       "displayName": "VENOMTHROPES",
       "points": "55 pts (3 models) / 110 pts (6 models)",
@@ -4234,6 +4439,11 @@
       "points": "65 pts (1 model)",
       "faction": "tyranids"
     },
+    "zoanthropes": {
+      "displayName": "ZOANTHROPES",
+      "points": "90 pts (3 models) / 190 pts (6 models)",
+      "faction": "tyranids"
+    },
     "angron": {
       "displayName": "ANGRON",
       "points": "330 pts (1 model)",
@@ -4247,11 +4457,6 @@
     "daemon prince of khorne with wings": {
       "displayName": "DAEMON PRINCE OF KHORNE WITH WINGS",
       "points": "170 pts (1 model)",
-      "faction": "world-eaters"
-    },
-    "defiler": {
-      "displayName": "DEFILER",
-      "points": "270 pts (1 model) / 310 pts (1 model)",
       "faction": "world-eaters"
     },
     "eightbound": {
@@ -4279,6 +4484,11 @@
       "points": "115 pts (1 model)",
       "faction": "world-eaters"
     },
+    "khorne berzerkers": {
+      "displayName": "KHORNE BERZERKERS",
+      "points": "160 pts (10 models) / 320 pts (20 models)",
+      "faction": "world-eaters"
+    },
     "lord invocatus": {
       "displayName": "LORD INVOCATUS",
       "points": "100 pts (1 model)",
@@ -4292,11 +4502,6 @@
     "slaughterbound": {
       "displayName": "SLAUGHTERBOUND",
       "points": "100 pts (1 model)",
-      "faction": "world-eaters"
-    },
-    "bloodcrushers": {
-      "displayName": "BLOODCRUSHERS",
-      "points": "95 pts (3 models) / 190 pts (6 models) / 115 pts (3 models) / 210 pts (6 models)",
       "faction": "world-eaters"
     }
   }
