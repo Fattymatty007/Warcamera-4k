@@ -522,8 +522,15 @@ function parseArmyListText(text){
   // [100 pts]:" right before that unit's own attached wargear/leader line.
   // A leading model-count ("10x Necron Warrior (100 pts)", quantity before
   // the name rather than after) is also accepted — some exporters put it
-  // there instead of appending "x10" to the name.
-  const headerRe = /^(?:\d+\s*[xX]\s*)?([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*:?\s*$/i;
+  // there instead of appending "x10" to the name. A leading short label
+  // like "Char1: " (some character/HQ exports number each named slot) is
+  // accepted too. Finally, unlike the bare trailing colon above, anything
+  // AFTER that colon is now allowed and ignored — some exporters put the
+  // unit's whole wargear loadout on the same line ("Char1: 1x Knight
+  // Desecrator (355 pts): Warlord, Desecrator laser destructor, ...")
+  // instead of on their own bulleted lines below; the wargear text itself
+  // isn't needed since every unit gets freshly looked up by name anyway.
+  const headerRe = /^(?:[A-Za-z][A-Za-z0-9]{0,19}\s*:\s*)?(?:\d+\s*[xX]\s*)?([A-Za-z][A-Za-z0-9'.,\- ]{1,60}?)\s*[\(\[]\s*(\d{1,4})\s*(?:pts?|points)\s*[\)\]]\s*(?::\s*.*)?$/i;
   const wargearSectionRe = /^wargear options?:?$/i;
   // An all-caps line that ISN'T itself a priced unit header is a section
   // label (BATTLELINE, DEDICATED TRANSPORT, ...) rather than a unit.
