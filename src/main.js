@@ -88,6 +88,33 @@ function loadDatasheetsData(){
   return datasheetsDataPromise;
 }
 
+// Detachment-level rules/enhancements/stratagems, extracted from Wahapedia's
+// export by .github/workflows/update-detachments.yml (see
+// scripts/fetch-detachments.mjs) — same static, zero-Gemini-call pattern as
+// points and datasheets. Doesn't include faction-wide Army Rules; Wahapedia's
+// export doesn't have that data at all (confirmed via CI dispatch).
+let detachmentsDataPromise = null;
+function loadDetachmentsData(){
+  if(!detachmentsDataPromise){
+    detachmentsDataPromise = fetch('/detachments-data.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return detachmentsDataPromise;
+}
+
+function htmlToPlainText(html){
+  return (html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li>/gi, '\n• ')
+    .replace(/<\/li>/gi, '')
+    .replace(/<\/?ul>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{2,}/g, '\n')
+    .replace(/^\n+/, '')
+    .trim();
+}
+
 // A unit name can map to more than one official datasheet — some units
 // (e.g. Nurgle Daemon units like Nurglings or Plague Drones) have a
 // genuinely separate datasheet per faction that can take them. See
@@ -546,8 +573,13 @@ function parseArmyListText(text){
   // way of disambiguating same-named units) is stripped since it isn't
   // resolved here — the led unit is matched by name only.
   const leadingRe = /^[•\-*▪◦›»]\s*(?:leading|leads|attached to|joined to)\s*:\s*(.+?)\s*(?:\[\d+\])?\s*$/i;
+  // An explicit "Detachment: X" line names the detachment directly — used
+  // below to look up that detachment's rule/enhancements/stratagems,
+  // instead of being discarded like the rest of skipPrefixRe's matches.
+  const detachmentLineRe = /^detachment\s*[:\-]\s*(.+)$/i;
   const units = [];
   const leaderRelations = [];
+  const detachmentHints = [];
   let lastUnitIndex = -1;
   let title = null;
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
@@ -585,6 +617,12 @@ function parseArmyListText(text){
     if(leadMatch && lastUnitIndex >= 0){
       const ledName = leadMatch[1].trim().replace(/\s{2,}/g, ' ');
       if(ledName) leaderRelations.push({ leaderIdx: lastUnitIndex, ledName });
+      continue;
+    }
+    const detachMatch = line.match(detachmentLineRe);
+    if(detachMatch){
+      const dName = detachMatch[1].trim().replace(/\s{2,}/g, ' ');
+      if(dName) detachmentHints.push(dName);
       continue;
     }
     if(skipPrefixRe.test(line)) continue;
@@ -636,16 +674,16 @@ function parseArmyListText(text){
       units.push(...reordered);
     }
   }
-  return { units, title };
+  return { units, title, detachmentHints };
 }
 
 function handleArmyListFile(text){
-  const { units, title } = parseArmyListText(text);
+  const { units, title, detachmentHints } = parseArmyListText(text);
   if(!units.length){
     renderArmyListParseError(`Didn't recognize any units in that list.`, text);
     return;
   }
-  renderArmyListConfirm(units, text, title);
+  renderArmyListConfirm(units, text, title, detachmentHints);
 }
 
 function renderArmyListParseError(message, rawText){
@@ -670,7 +708,7 @@ function renderArmyListParseError(message, rawText){
 // selectable units — no separate name field or second button — so adding
 // it to My Collection is exactly the same one-tap action as adding any of
 // the individual units found in it.
-function renderArmyListConfirm(units, rawText, title){
+function renderArmyListConfirm(units, rawText, title, detachmentHints){
   setStatus('', 'STANDBY');
   const rows = units.map((u, i) => `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
@@ -679,7 +717,7 @@ function renderArmyListConfirm(units, rawText, title){
     </label>
   `).join('');
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text and any Detachment Rules cards recognized), ready to add to a battle in one action later.</div>
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${rows}
     <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Save to a New Folder</button>
@@ -688,7 +726,7 @@ function renderArmyListConfirm(units, rawText, title){
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
     const folderName = document.getElementById('folderNameInput').value.trim();
-    runArmyListImport(selectedUnits, rawText, folderName, title);
+    runArmyListImport(selectedUnits, rawText, folderName, title, detachmentHints);
   };
   document.getElementById('cancelListImportBtn').onclick = renderHome;
 }
@@ -710,9 +748,10 @@ function renderTextListSaved(label){
 // total (summed straight from the pasted text, not a rescan), and today's
 // date — so a folder never ends up unnamed just because the user skipped
 // naming it.
-function buildDefaultFolderName(title, units, datasheets){
-  if(title) return title;
-  const totalPts = units.reduce((sum, u) => sum + (u.pts || 0), 0);
+// The faction most of a list's looked-up datasheets share — used both as
+// the default folder-name fallback and to know which faction's detachment
+// list to check a pasted list against for Detachment Rules cards.
+function computeMajorityFaction(datasheets){
   const factionCounts = {};
   for(const d of datasheets){
     const f = (d.faction || '').trim();
@@ -724,6 +763,13 @@ function buildDefaultFolderName(title, units, datasheets){
   for(const [f, c] of Object.entries(factionCounts)){
     if(c > topCount){ topFaction = f; topCount = c; }
   }
+  return topFaction;
+}
+
+function buildDefaultFolderName(title, units, datasheets){
+  if(title) return title;
+  const totalPts = units.reduce((sum, u) => sum + (u.pts || 0), 0);
+  const topFaction = computeMajorityFaction(datasheets);
   const dateStr = formatBattleDate(new Date().toISOString().slice(0,10));
   const parts = [];
   if(topFaction) parts.push(topFaction);
@@ -732,7 +778,38 @@ function buildDefaultFolderName(title, units, datasheets){
   return parts.join(' · ');
 }
 
-async function runArmyListImport(units, rawText, folderName, title){
+// Finds which of a faction's known detachments this pasted list actually
+// uses — either an explicit "Detachment: X" line (captured by
+// parseArmyListText) or any line in the text that exactly matches a known
+// detachment name for that faction (catches an informal title like "Chaos -
+// Chaos Daemons - Plague Legion - [2000 pts]", where "Plague Legion" is a
+// real detachment, while never misfiring on a made-up nickname like "2
+// Bigs" that just doesn't match anything). Supports more than one match, so
+// a list naming several detachments gets a card for each.
+async function findDetachmentsInList(rawText, factionDisplayName, detachmentHints){
+  const data = await loadDetachmentsData();
+  if(!data || !data.factions) return [];
+  const factionKey = normalizePointsName(factionDisplayName);
+  const factionEntry = data.factions[factionKey];
+  if(!factionEntry) return [];
+
+  const found = new Map();
+  const tryMatch = (candidateName) => {
+    const key = normalizePointsName(candidateName);
+    const detachment = factionEntry.detachments[key];
+    if(detachment && !found.has(key)) found.set(key, detachment);
+  };
+
+  for(const hint of detachmentHints) tryMatch(hint);
+  for(const rawLine of rawText.split(/\r?\n/)){
+    const line = rawLine.trim();
+    if(!line) continue;
+    tryMatch(line);
+  }
+  return [...found.values()];
+}
+
+async function runArmyListImport(units, rawText, folderName, title, detachmentHints){
   setStatus('busy', 'IMPORTING');
   // The folder holds reference datasheets, not a battle roster — fielding
   // the same unit more than once (e.g. two Plaguebearers units) doesn't
@@ -757,17 +834,23 @@ async function runArmyListImport(units, rawText, folderName, title){
       failed.push(uniqueUnits[i].n);
     }
   }
+  const majorityFaction = computeMajorityFaction(datasheets);
+  renderLoading('IMPORTING LIST', 'Checking for Detachment Rules…');
+  const detachmentCards = await findDetachmentsInList(rawText, majorityFaction, detachmentHints || []);
   // Every list upload creates exactly one new folder — the selected units
-  // (freshly looked up, one reference page per unique unit) plus the full
-  // pasted text, kept together instead of scattered flat into My
-  // Collection, so the whole thing can be added to a battle roster in one
-  // action later. The points total below still reflects every selected
-  // occurrence, not just the unique ones, so it matches the list's real cost.
+  // (freshly looked up, one reference page per unique unit), the full
+  // pasted text, and a Detachment Rules card for each detachment the list
+  // is confidently recognized as using, all kept together instead of
+  // scattered flat into My Collection, so the whole thing can be added to a
+  // battle roster in one action later. The points total below still
+  // reflects every selected occurrence, not just the unique ones, so it
+  // matches the list's real cost.
   const finalName = folderName || buildDefaultFolderName(title, units, datasheets);
-  await addUnitsToCollectionFolder(datasheets, finalName, rawText);
+  await addUnitsToCollectionFolder(datasheets, finalName, rawText, detachmentCards);
   setStatus('', 'LINK ESTABLISHED');
+  const detachNote = detachmentCards.length ? ` Also added Detachment Rules for ${detachmentCards.map(d => escapeHtml(d.displayName)).join(', ')}.` : '';
   main.innerHTML = `
-    <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unique unit${datasheets.length===1?'':'s'}${dupeCount ? ' ('+dupeCount+' duplicate'+(dupeCount===1?'':'s')+' skipped — one reference page per unit is enough)' : ''} plus the full list text.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unique unit${datasheets.length===1?'':'s'}${dupeCount ? ' ('+dupeCount+' duplicate'+(dupeCount===1?'':'s')+' skipped — one reference page per unit is enough)' : ''} plus the full list text.${detachNote}${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
     <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
   `;
@@ -1094,9 +1177,9 @@ async function addTextListToCollection(rawText, label){
 // together as one Collection entry — acts like a unit entry (same card,
 // same picker row when adding to a battle), but selecting it in a battle
 // expands into every unit it contains instead of adding just one.
-async function addUnitsToCollectionFolder(datasheets, label, rawText){
+async function addUnitsToCollectionFolder(datasheets, label, rawText, detachmentCards){
   const list = await loadCollection();
-  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets, rawText: rawText || '' };
+  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets, rawText: rawText || '', detachmentCards: detachmentCards || [] };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -1667,9 +1750,14 @@ function renderCollectionFolderView(entry){
       <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
     </div>
   `).join('');
+  const detachmentCards = entry.detachmentCards || [];
+  const detachButtons = detachmentCards.map((card, i) => `
+    <button class="btn gold" data-detach-idx="${i}" style="margin-bottom:10px;">📜 ${escapeHtml(card.displayName || 'Detachment')} Rules</button>
+  `).join('');
   main.innerHTML = `
     <div class="noteBox">🗂 <strong>${escapeHtml(entry.folderName || 'Army List Units')}</strong> — ${entry.units.length} unit${entry.units.length===1?'':'s'}. Tap a unit to view its full datasheet.</div>
     ${entry.rawText ? '<button class="btn gold" id="folderViewTextBtn" style="margin-bottom:10px;">📋 View Full List Text</button>' : ''}
+    ${detachButtons}
     ${rows}
   `;
   footer.style.display = 'flex';
@@ -1683,7 +1771,65 @@ function renderCollectionFolderView(entry){
       renderTextListView({ listName: entry.folderName, rawText: entry.rawText }, () => renderCollectionFolderView(entry), '← Back to Folder');
     };
   }
+  detachmentCards.forEach((card, i) => {
+    const btn = main.querySelector(`[data-detach-idx="${i}"]`);
+    if(btn) btn.onclick = () => renderDetachmentRulesView(entry, card);
+  });
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
+}
+
+function buildDetachmentRulesHtml(card){
+  const abilityHtml = card.ability ? `
+    <div class="abilityItem">
+      <div class="abilityName">${escapeHtml(card.ability.name||'')}</div>
+      <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(card.ability.description))}</div>
+    </div>
+  ` : `<div class="loadSub">No detachment rule text available.</div>`;
+
+  const enhancementsHtml = (card.enhancements||[]).map(e => `
+    <div class="abilityItem">
+      <div class="abilityName">${escapeHtml(e.name||'')}${e.cost ? ' — '+escapeHtml(e.cost)+' pts' : ''}</div>
+      <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(e.description))}</div>
+    </div>
+  `).join('') || `<div class="loadSub">No enhancements listed.</div>`;
+
+  const stratagemsHtml = (card.stratagems||[]).map(s => `
+    <div class="abilityItem">
+      <div class="abilityName">${escapeHtml(s.name||'')}${s.cpCost ? ' — '+escapeHtml(s.cpCost)+' CP' : ''}</div>
+      <div class="libMeta" style="margin:2px 0 4px;">${escapeHtml([s.phase, s.turn].filter(Boolean).join(' · '))}</div>
+      <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(s.description))}</div>
+    </div>
+  `).join('') || `<div class="loadSub">No stratagems listed.</div>`;
+
+  return `
+    <div class="sheet">
+      <div class="sheetHead">
+        <div class="sheetName">${escapeHtml(card.displayName||'Detachment')}</div>
+        <div class="sheetFaction">${escapeHtml(card.faction||'')} · Detachment Rules</div>
+      </div>
+      <div class="section">
+        <div class="sectionTitle">Detachment Rule</div>
+        ${abilityHtml}
+      </div>
+      <div class="section">
+        <div class="sectionTitle">Enhancements</div>
+        ${enhancementsHtml}
+      </div>
+      <div class="section">
+        <div class="sectionTitle">Stratagems</div>
+        ${stratagemsHtml}
+      </div>
+      <div class="noteBox">Rules text from Wahapedia's public 11th-edition data export. Always confirm against your army's official app or GW source before a tournament.</div>
+    </div>
+  `;
+}
+
+function renderDetachmentRulesView(entry, card){
+  setStatus('', 'STANDBY');
+  main.innerHTML = buildDetachmentRulesHtml(card);
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn">← Back to Folder</button>`;
+  document.getElementById('detachRulesBackBtn').onclick = () => renderCollectionFolderView(entry);
 }
 
 function renderCollectionFolderUnitView(entry, unit){

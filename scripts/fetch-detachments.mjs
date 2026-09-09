@@ -88,11 +88,18 @@ async function main() {
     const factionName = factionById.get(d.faction_id);
     if (!factionName) continue;
 
+    // Description fields keep their <br>/<li> structure intact (only
+    // trimmed, not stripped) — these are multi-line/bulleted rules text
+    // (a stratagem's WHEN/TARGET/EFFECT layout, a detachment ability's
+    // bullet-point options), unlike the short one-line datasheet abilities
+    // fetch-datasheets.mjs strips down to plain text. The app's
+    // htmlToPlainText() converts this to readable line breaks and bullets
+    // at render time instead of losing that structure here.
     const ability = abilityByDetachmentId.get(d.id);
     const dEnhancements = (enhancementsByDetachmentId.get(d.id) || []).map((e) => ({
       name: stripHtml(e.name),
       cost: e.cost || '',
-      description: stripHtml(e.description),
+      description: (e.description || '').trim(),
     }));
     const dStratagems = (stratagemsByDetachmentId.get(d.id) || []).map((s) => ({
       name: stripHtml(s.name),
@@ -100,13 +107,13 @@ async function main() {
       type: stripHtml(s.type),
       turn: stripHtml(s.turn),
       phase: stripHtml(s.phase),
-      description: stripHtml(s.description),
+      description: (s.description || '').trim(),
     }));
 
     const record = {
       displayName: stripHtml(d.name),
       faction: factionName,
-      ability: ability ? { name: stripHtml(ability.name), description: stripHtml(ability.description) } : null,
+      ability: ability ? { name: stripHtml(ability.name), description: (ability.description || '').trim() } : null,
       enhancements: dEnhancements,
       stratagems: dStratagems,
     };
