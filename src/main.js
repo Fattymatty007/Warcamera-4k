@@ -282,7 +282,7 @@ function renderHome(){
     <button class="btn ghost" id="uploadPhotoBtn" style="margin-top:-6px;">🖼 Upload a Photo Instead</button>
     <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
     <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
-    <input type="text" id="manualInput" placeholder="Type a unit name, e.g. Intercessors" />
+    <input type="text" id="manualInput" placeholder="Type a unit or Detachment name" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
     <button class="btn gold" id="battlesBtn">⚔️ Battles</button>
     <div class="divider">library</div>
@@ -296,6 +296,7 @@ function renderHome(){
       Stats come from the AI's own knowledge, not a live lookup, so a recent points/balance update might not be reflected. Rule text is paraphrased, not quoted verbatim from Games Workshop.
       If your browser blocks camera access, Upload a Photo Instead works instead — it uses your device's normal photo picker rather than a live camera feed.
       Already built a list in an army builder app? Paste an Army List to pull in every unit from a plain-text export at once, after confirming what was found.
+      Know the Detachment you're playing? Type its name (e.g. "Plague Legion") into Look Up Datasheet to pull up its rule, Enhancements, and Stratagems directly.
       Got your own conversions or proxies? Register them under Custom Model Library so future scans recognize them instantly.
       Scanned a unit before? Save it to My Collection from its datasheet screen, then reopen it or add it straight into a battle roster with no rescanning.
       Playing a game? Start a Battle to log which units you and your opponent have on the table, with one tap back to any datasheet.
@@ -328,9 +329,19 @@ function renderHome(){
   document.getElementById('battlesBtn').onclick = renderBattleList;
   document.getElementById('apiKeyBtn').onclick = renderApiKeySettings;
 
-  document.getElementById('manualBtn').onclick = () => {
+  document.getElementById('manualBtn').onclick = async () => {
     const v = document.getElementById('manualInput').value.trim();
-    if(v) fetchDatasheet(v, '');
+    if(!v) return;
+    // Check for a Detachment by that name first — same static, no-Gemini
+    // source used when a list upload finds one — before falling back to a
+    // normal unit lookup, so typing a Detachment name here (e.g. "Plague
+    // Legion") shows its rules card instead of a failed unit search.
+    setStatus('busy', 'RETRIEVING');
+    renderLoading('CONSULTING ARCHIVES', `Checking "${v}"…`);
+    const detachMatches = await findDetachmentByName(v);
+    if(detachMatches.length === 1){ renderDetachmentSearchResult(detachMatches[0]); return; }
+    if(detachMatches.length > 1){ renderDetachmentFactionPicker(v, detachMatches); return; }
+    fetchDatasheet(v, '');
   };
   document.getElementById('manualInput').addEventListener('keydown', e=>{
     if(e.key==='Enter'){ document.getElementById('manualBtn').click(); }
@@ -832,6 +843,34 @@ async function findDetachmentsInList(rawText, factionDisplayName, detachmentHint
   return [...found.values()];
 }
 
+// Lets the same "Look Up Datasheet" search box find a Detachment by name,
+// not just a unit — same static, no-Gemini-call source as
+// findDetachmentsInList above. Exact normalized-name match first (across
+// every faction, since the search box has no faction context to narrow
+// by); if nothing matches exactly, falls back to a substring match so a
+// partial or slightly-off name still finds something, same pattern as
+// findDatasetKey's unit lookup. Only one detachment name collides across
+// factions in the current dataset ("Infestation Swarm" — Genestealer
+// Cults and Tyranids both have one), but a substring search can turn up
+// several unrelated detachments too, so this always returns every match
+// for the caller to disambiguate rather than guessing.
+async function findDetachmentByName(query){
+  const data = await loadDetachmentsData();
+  if(!data || !data.factions) return [];
+  const key = normalizePointsName(query);
+  if(!key) return [];
+
+  const exact = [];
+  const substring = [];
+  for(const faction of Object.values(data.factions)){
+    for(const [dKey, card] of Object.entries(faction.detachments)){
+      if(dKey === key) exact.push(card);
+      else if(dKey.length > 2 && (key.includes(dKey) || dKey.includes(key))) substring.push(card);
+    }
+  }
+  return exact.length ? exact : substring;
+}
+
 async function runArmyListImport(units, rawText, folderName, title, detachmentHints){
   setStatus('busy', 'IMPORTING');
   // The folder holds reference datasheets, not a battle roster — fielding
@@ -1191,6 +1230,18 @@ async function removeUnitFromCollection(unitId){
 async function addTextListToCollection(rawText, label){
   const list = await loadCollection();
   const entry = { id: uid('c_'), savedAt: Date.now(), isTextList: true, listName: label || 'Imported List', rawText };
+  list.unshift(entry);
+  await saveCollectionList(list);
+  return entry;
+}
+
+// A standalone Detachment Rules card saved from the search box (see
+// findDetachmentByName / renderDetachmentSearchResult) — same "acts like a
+// unit entry" pattern as the text-list entry above, but holds a detachment
+// card instead of a datasheet or raw text.
+async function addDetachmentToCollection(card){
+  const list = await loadCollection();
+  const entry = { id: uid('c_'), savedAt: Date.now(), isDetachment: true, card };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -1717,6 +1768,13 @@ async function renderCollectionList(){
         <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
       </div>
     `;
+    if(u.isDetachment) return `
+      <div class="libCard" data-id="${u.id}">
+        <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules</div>
+        <div class="libMeta">${escapeHtml(u.card.faction||'')} · Detachment Rules</div>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
     return `
       <div class="libCard" data-id="${u.id}">
         <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
@@ -1727,7 +1785,7 @@ async function renderCollectionList(){
   }).join('');
 
   main.innerHTML = `
-    ${list.length ? '<div class="noteBox">Tap a saved unit, folder, or list to reopen it.</div>' + cards : emptyNote}
+    ${list.length ? '<div class="noteBox">Tap a saved unit, folder, list, or Detachment card to reopen it.</div>' + cards : emptyNote}
     <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
   `;
 
@@ -1738,6 +1796,7 @@ async function renderCollectionList(){
         if(e.target.closest('[data-del]')) return;
         if(u.isFolder) renderCollectionFolderView(u);
         else if(u.isTextList) renderTextListView(u, renderCollectionList, '← Back to Collection');
+        else if(u.isDetachment) renderDetachmentRulesView(u.card, renderCollectionList, '← Back to Collection');
         else renderCollectionUnitView(u);
       });
     }
@@ -1796,7 +1855,7 @@ function renderCollectionFolderView(entry){
   }
   detachmentCards.forEach((card, i) => {
     const btn = main.querySelector(`[data-detach-idx="${i}"]`);
-    if(btn) btn.onclick = () => renderDetachmentRulesView(entry, card);
+    if(btn) btn.onclick = () => renderDetachmentRulesView(card, () => renderCollectionFolderView(entry), '← Back to Folder');
   });
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
 }
@@ -1847,12 +1906,43 @@ function buildDetachmentRulesHtml(card){
   `;
 }
 
-function renderDetachmentRulesView(entry, card){
+function renderDetachmentRulesView(card, onBack, backLabel){
   setStatus('', 'STANDBY');
   main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn">← Back to Folder</button>`;
-  document.getElementById('detachRulesBackBtn').onclick = () => renderCollectionFolderView(entry);
+  footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn">${escapeHtml(backLabel || '← Back')}</button>`;
+  document.getElementById('detachRulesBackBtn').onclick = onBack;
+}
+
+// Same card view as above, but reached from the search box instead of an
+// already-saved folder/collection entry — so it's not saved yet, and gets
+// a Save button instead of a plain back link.
+function renderDetachmentSearchResult(card){
+  setStatus('', 'LINK ESTABLISHED');
+  main.innerHTML = buildDetachmentRulesHtml(card) +
+    `<button class="btn gold" id="saveDetachToCollectionBtn" style="margin-top:12px;">💾 Save to My Collection</button>`;
+  document.getElementById('saveDetachToCollectionBtn').onclick = async (e) => {
+    await addDetachmentToCollection(card);
+    const btn = e.currentTarget;
+    btn.textContent = '✓ Saved to My Collection';
+    btn.disabled = true;
+  };
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="detachSearchBackBtn">← Home</button>`;
+  document.getElementById('detachSearchBackBtn').onclick = renderHome;
+}
+
+function renderDetachmentFactionPicker(query, matches){
+  setStatus('', 'STANDBY');
+  main.innerHTML = `
+    <div class="noteBox">"${escapeHtml(query)}" matches more than one Detachment. Which one do you want?</div>
+    ${matches.map((m, i) => `<button class="btn gold" data-detach-match-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(m.displayName || 'Detachment')} — ${escapeHtml(m.faction || 'Unknown Faction')}</button>`).join('')}
+    <button class="btn ghost" id="detachPickerCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+  `;
+  matches.forEach((m, i) => {
+    document.querySelector(`[data-detach-match-idx="${i}"]`).onclick = () => renderDetachmentSearchResult(m);
+  });
+  document.getElementById('detachPickerCancelBtn').onclick = renderHome;
 }
 
 function renderCollectionFolderUnitView(entry, unit){
