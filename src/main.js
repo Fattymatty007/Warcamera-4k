@@ -734,26 +734,40 @@ function buildDefaultFolderName(title, units, datasheets){
 
 async function runArmyListImport(units, rawText, folderName, title){
   setStatus('busy', 'IMPORTING');
+  // The folder holds reference datasheets, not a battle roster — fielding
+  // the same unit more than once (e.g. two Plaguebearers units) doesn't
+  // need a second identical reference page, so only the first occurrence
+  // of each name gets looked up and saved.
+  const seen = new Set();
+  const uniqueUnits = units.filter(u => {
+    const key = u.n.toLowerCase();
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const dupeCount = units.length - uniqueUnits.length;
   const datasheets = [];
   const failed = [];
-  for(let i=0;i<units.length;i++){
-    renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${units.length}: ${units[i].n}…`);
+  for(let i=0;i<uniqueUnits.length;i++){
+    renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${uniqueUnits.length}: ${uniqueUnits[i].n}…`);
     try{
-      const d = await lookupDatasheetRaw(units[i].n, '', false);
+      const d = await lookupDatasheetRaw(uniqueUnits[i].n, '', false);
       datasheets.push(d);
     }catch(err){
-      failed.push(units[i].n);
+      failed.push(uniqueUnits[i].n);
     }
   }
   // Every list upload creates exactly one new folder — the selected units
-  // (freshly looked up) plus the full pasted text, kept together instead of
-  // scattered flat into My Collection, so the whole thing can be added to a
-  // battle roster in one action later.
+  // (freshly looked up, one reference page per unique unit) plus the full
+  // pasted text, kept together instead of scattered flat into My
+  // Collection, so the whole thing can be added to a battle roster in one
+  // action later. The points total below still reflects every selected
+  // occurrence, not just the unique ones, so it matches the list's real cost.
   const finalName = folderName || buildDefaultFolderName(title, units, datasheets);
   await addUnitsToCollectionFolder(datasheets, finalName, rawText);
   setStatus('', 'LINK ESTABLISHED');
   main.innerHTML = `
-    <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unit${datasheets.length===1?'':'s'} plus the full list text.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unique unit${datasheets.length===1?'':'s'}${dupeCount ? ' ('+dupeCount+' duplicate'+(dupeCount===1?'':'s')+' skipped — one reference page per unit is enough)' : ''} plus the full list text.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
     <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
   `;
