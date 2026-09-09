@@ -805,6 +805,18 @@ async function findDetachmentsInList(rawText, factionDisplayName, detachmentHint
     const line = rawLine.trim();
     if(!line) continue;
     tryMatch(line);
+    // Some exporters embed the detachment name as one hyphen-separated
+    // segment of an informal title line (e.g. "Chaos - Chaos Daemons -
+    // Plague Legion - [2000 pts]") rather than a whole line of its own —
+    // try each segment too, stripping a trailing points bracket if the
+    // segment carries one.
+    const segments = line.split(/\s+-\s+/);
+    if(segments.length > 1){
+      for(const seg of segments){
+        const cleaned = seg.replace(/\s*[\(\[]\s*\d[\d,]*\s*(?:pts?|points)\s*[\)\]]\s*$/i, '').trim();
+        if(cleaned) tryMatch(cleaned);
+      }
+    }
   }
   return [...found.values()];
 }
