@@ -1287,59 +1287,96 @@ async function addDetachmentToCollection(card){
   return entry;
 }
 
+// Shared dedup-add used everywhere a unit/Detachment lands in a folder —
+// list upload, the long-press "Move to..." below, and "Send to Army
+// Folder" straight from a search result. Mutates folder in place; returns
+// whether it actually added anything (false when that name was already
+// there, same dedup rule the list-upload path itself uses).
+function addUnitIntoFolder(folder, datasheet){
+  folder.units = folder.units || [];
+  const key = (datasheet.unit_name || '').toLowerCase();
+  if(folder.units.some(u => (u.unit_name||'').toLowerCase() === key)) return false;
+  folder.units.push(datasheet);
+  return true;
+}
+function addDetachmentIntoFolder(folder, card){
+  folder.detachmentCards = folder.detachmentCards || [];
+  const key = normalizePointsName(card.displayName);
+  if(folder.detachmentCards.some(c => normalizePointsName(c.displayName) === key)) return false;
+  folder.detachmentCards.push(card);
+  return true;
+}
+
 // Moves a standalone unit or Detachment card (long-pressed from the top
 // level of My Collection — see renderMoveToFolderPicker) into an existing
-// folder's own units/detachmentCards arrays, then removes the standalone
-// entry — the folder ends up holding it exactly as if it had been part of
-// that list's original upload. Skips the move (but still removes nothing)
-// if the folder already has a unit/Detachment of that same name, same
-// dedup rule the list-upload path itself uses.
+// folder, then removes the standalone entry — the folder ends up holding
+// it exactly as if it had been part of that list's original upload.
 async function moveCollectionEntryToFolder(entry, folderId){
   const list = await loadCollection();
   const folder = list.find(f => f.id === folderId && f.isFolder);
   if(!folder) return;
 
   if(entry.isDetachment){
-    folder.detachmentCards = folder.detachmentCards || [];
-    const key = normalizePointsName(entry.card.displayName);
-    if(!folder.detachmentCards.some(c => normalizePointsName(c.displayName) === key)){
-      folder.detachmentCards.push(entry.card);
-    }
+    addDetachmentIntoFolder(folder, entry.card);
   } else {
-    folder.units = folder.units || [];
-    const key = (entry.unit_name || '').toLowerCase();
-    if(!folder.units.some(u => (u.unit_name||'').toLowerCase() === key)){
-      const { id, savedAt, ...datasheet } = entry;
-      folder.units.push(datasheet);
-    }
+    const { id, savedAt, ...datasheet } = entry;
+    addUnitIntoFolder(folder, datasheet);
   }
 
   await saveCollectionList(list.filter(x => x.id !== entry.id));
 }
 
-// "Move to..." screen shown on a long-press of a standalone unit or
-// Detachment card in My Collection — lets it be folded into an existing
-// Army List folder instead of staying its own top-level entry.
-async function renderMoveToFolderPicker(entry){
+// Adds a unit/Detachment straight into an existing folder without it ever
+// having been a standalone Collection entry — used by "Send to Army
+// Folder" on a fresh search result, so saving to My Collection first
+// isn't a required step.
+async function sendUnitToFolder(datasheet, folderId){
+  const list = await loadCollection();
+  const folder = list.find(f => f.id === folderId && f.isFolder);
+  if(!folder) return;
+  addUnitIntoFolder(folder, datasheet);
+  await saveCollectionList(list);
+}
+async function sendDetachmentToFolder(card, folderId){
+  const list = await loadCollection();
+  const folder = list.find(f => f.id === folderId && f.isFolder);
+  if(!folder) return;
+  addDetachmentIntoFolder(folder, card);
+  await saveCollectionList(list);
+}
+
+// Generic "which Army List folder?" screen — reused by the long-press
+// "Move to..." (moveCollectionEntryToFolder) and "Send to Army Folder" on
+// a search result (sendUnitToFolder/sendDetachmentToFolder). Callers own
+// what actually happens on pick/cancel; this only lists folders and wires
+// the taps.
+async function renderSendToFolderPicker(itemLabel, verb, onPick, onCancel){
   setStatus('', 'STANDBY');
   const list = await loadCollection();
   const folders = list.filter(f => f.isFolder);
-  const itemLabel = entry.isDetachment ? `${entry.card.displayName || 'Detachment'} Rules` : (entry.unit_name || 'Unknown Unit');
 
   main.innerHTML = `
-    <div class="noteBox">Move <strong>${escapeHtml(itemLabel)}</strong> into which Army List folder?</div>
+    <div class="noteBox">${verb} <strong>${escapeHtml(itemLabel)}</strong> into which Army List folder?</div>
     ${folders.length ? folders.map((f, i) => `
-      <button class="btn gold" data-move-folder-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">🗂 ${escapeHtml(f.folderName || 'Army List Units')}</button>
-    `).join('') : '<div class="noteBox">No Army List folders yet — upload a list first to create one, then move this in.</div>'}
-    <button class="btn ghost" id="moveToCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+      <button class="btn gold" data-send-folder-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">🗂 ${escapeHtml(f.folderName || 'Army List Units')}</button>
+    `).join('') : '<div class="noteBox">No Army List folders yet — upload a list first to create one.</div>'}
+    <button class="btn ghost" id="sendToCancelBtn" style="margin-top:6px;">✕ Cancel</button>
   `;
   folders.forEach((f, i) => {
-    document.querySelector(`[data-move-folder-idx="${i}"]`).onclick = async () => {
-      await moveCollectionEntryToFolder(entry, f.id);
-      renderCollectionList();
-    };
+    document.querySelector(`[data-send-folder-idx="${i}"]`).onclick = () => onPick(f);
   });
-  document.getElementById('moveToCancelBtn').onclick = renderCollectionList;
+  document.getElementById('sendToCancelBtn').onclick = onCancel;
+}
+
+// "Move to..." screen shown on a long-press of a standalone unit or
+// Detachment card in My Collection — lets it be folded into an existing
+// Army List folder instead of staying its own top-level entry.
+function renderMoveToFolderPicker(entry){
+  const itemLabel = entry.isDetachment ? `${entry.card.displayName || 'Detachment'} Rules` : (entry.unit_name || 'Unknown Unit');
+  renderSendToFolderPicker(itemLabel, 'Move', async (folder) => {
+    await moveCollectionEntryToFolder(entry, folder.id);
+    renderCollectionList();
+  }, renderCollectionList);
 }
 
 // A folder holds full looked-up datasheets from one list upload, grouped
@@ -2017,16 +2054,28 @@ function renderDetachmentRulesView(card, onBack, backLabel){
 
 // Same card view as above, but reached from the search box instead of an
 // already-saved folder/collection entry — so it's not saved yet, and gets
-// a Save button instead of a plain back link.
-function renderDetachmentSearchResult(card){
+// Save/Send actions instead of a plain back link. Actions sit above the
+// card (which can run long — a rule plus every Enhancement and
+// Stratagem) rather than after it, so they're there without scrolling.
+// actionNote is an optional confirmation banner (e.g. after a Send)
+// shown just above the actions on re-render.
+function renderDetachmentSearchResult(card, actionNote){
   setStatus('', 'LINK ESTABLISHED');
-  main.innerHTML = buildDetachmentRulesHtml(card) +
-    `<button class="btn gold" id="saveDetachToCollectionBtn" style="margin-top:12px;">💾 Save to My Collection</button>`;
+  main.innerHTML = (actionNote || '') + `
+    <button class="btn gold" id="saveDetachToCollectionBtn">💾 Save to My Collection</button>
+    <button class="btn gold" id="sendDetachToFolderBtn" style="margin-top:8px;">📤 Send to Army Folder</button>
+  ` + buildDetachmentRulesHtml(card);
   document.getElementById('saveDetachToCollectionBtn').onclick = async (e) => {
     await addDetachmentToCollection(card);
     const btn = e.currentTarget;
     btn.textContent = '✓ Saved to My Collection';
     btn.disabled = true;
+  };
+  document.getElementById('sendDetachToFolderBtn').onclick = () => {
+    renderSendToFolderPicker(card.displayName || 'Detachment', 'Send', async (folder) => {
+      await sendDetachmentToFolder(card, folder.id);
+      renderDetachmentSearchResult(card, `<div class="noteBox">✓ Sent to <strong>${escapeHtml(folder.folderName || 'Army List Units')}</strong>.</div>`);
+    }, () => renderDetachmentSearchResult(card));
   };
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="detachSearchBackBtn">← Home</button>`;
@@ -2396,33 +2445,32 @@ function buildDatasheetSheetHtml(d){
   `;
 }
 
-async function renderDatasheet(d){
+// The pure (side-effect-free) render for a looked-up datasheet — split
+// out from renderDatasheet below so "Send to Army Folder" can bring the
+// user back to this same screen afterward without re-running
+// renderDatasheet's one-time addUnitToBattle call a second time.
+// actionNote is an optional confirmation banner (e.g. after a Send) shown
+// just above the actions on re-render. Actions sit above the sheet itself
+// (which can run long) rather than after it, so they're there without
+// scrolling.
+function renderDatasheetSheetView(d, battleNote, actionNote){
   setStatus('', 'LINK ESTABLISHED');
 
-  // If this scan was started from a battle (see renderBattleScanChoice),
-  // save it into that side's roster and swap the footer for battle
-  // navigation instead of the normal Rescan/Other actions.
-  let battleNote = '';
-  const battleCtx = currentBattleContext;
-  let battle = null;
-  if(battleCtx){
-    battle = await getBattleById(battleCtx.battleId);
-    if(battle){
-      await addUnitToBattle(battleCtx.battleId, battleCtx.team, d);
-      const teamLabel = battleCtx.team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
-      battleNote = `<div class="noteBox" style="border-bottom:1px dashed var(--iron); padding-bottom:12px;">✓ Added to <strong>${escapeHtml(teamLabel)}</strong> for this battle.</div>`;
-    } else {
-      currentBattleContext = null; // battle no longer exists (e.g. deleted mid-scan)
-    }
-  }
-
-  main.innerHTML = battleNote + buildDatasheetSheetHtml(d) +
-    `<button class="btn gold" id="saveToCollectionBtn" style="margin-top:12px;">💾 Save to My Collection</button>`;
+  main.innerHTML = (battleNote || '') + (actionNote || '') + `
+    <button class="btn gold" id="saveToCollectionBtn">💾 Save to My Collection</button>
+    <button class="btn gold" id="sendToFolderBtn" style="margin-top:8px;">📤 Send to Army Folder</button>
+  ` + buildDatasheetSheetHtml(d);
   document.getElementById('saveToCollectionBtn').onclick = async (e) => {
     await addUnitToCollection(d);
     const btn = e.currentTarget;
     btn.textContent = '✓ Saved to My Collection';
     btn.disabled = true;
+  };
+  document.getElementById('sendToFolderBtn').onclick = () => {
+    renderSendToFolderPicker(d.unit_name || 'Unknown Unit', 'Send', async (folder) => {
+      await sendUnitToFolder(d, folder.id);
+      renderDatasheetSheetView(d, battleNote, `<div class="noteBox">✓ Sent to <strong>${escapeHtml(folder.folderName || 'Army List Units')}</strong>.</div>`);
+    }, () => renderDatasheetSheetView(d, battleNote));
   };
 
   footer.style.display = 'flex';
@@ -2449,6 +2497,28 @@ async function renderDatasheet(d){
     document.getElementById('scanAgain').onclick = openCamera;
     document.getElementById('searchAnother').onclick = renderManualSearch;
   }
+}
+
+async function renderDatasheet(d){
+  // If this scan was started from a battle (see renderBattleScanChoice),
+  // save it into that side's roster and swap the footer for battle
+  // navigation instead of the normal Rescan/Other actions. This only
+  // happens once, here — renderDatasheetSheetView above is what re-renders
+  // this same screen afterward (e.g. after Send to Army Folder) without
+  // adding the unit to the battle a second time.
+  let battleNote = '';
+  const battleCtx = currentBattleContext;
+  if(battleCtx){
+    const battle = await getBattleById(battleCtx.battleId);
+    if(battle){
+      await addUnitToBattle(battleCtx.battleId, battleCtx.team, d);
+      const teamLabel = battleCtx.team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+      battleNote = `<div class="noteBox" style="border-bottom:1px dashed var(--iron); padding-bottom:12px;">✓ Added to <strong>${escapeHtml(teamLabel)}</strong> for this battle.</div>`;
+    } else {
+      currentBattleContext = null; // battle no longer exists (e.g. deleted mid-scan)
+    }
+  }
+  renderDatasheetSheetView(d, battleNote);
 }
 
 function escapeHtml(str){
