@@ -21,14 +21,29 @@ function uid(prefix){
 // same way. The card itself still gets a plain click's usual navigation —
 // callers just need to check the flag this passes back before acting on
 // their own click listener, since a long-press's release still fires one.
+// A held press is exactly the gesture browsers use to start their own
+// text-selection/callout UI, and that native behavior can win the moment
+// onLongPress() swaps the screen out from under a still-active touch — the
+// CSS on #app (see style.css) blocks selection on the elements themselves,
+// and this blocks the 'selectstart' event too as belt-and-suspenders for
+// whatever's on screen for the rest of this gesture, old content or new.
+let longPressActive = false;
+document.addEventListener('selectstart', (e) => {
+  if(longPressActive) e.preventDefault();
+});
+
 function attachLongPress(el, onLongPress, duration = 550){
   let timer = null;
   let fired = false;
   const start = () => {
     fired = false;
+    longPressActive = true;
     timer = setTimeout(() => { fired = true; onLongPress(); }, duration);
   };
-  const cancel = () => { if(timer){ clearTimeout(timer); timer = null; } };
+  const cancel = () => {
+    if(timer){ clearTimeout(timer); timer = null; }
+    longPressActive = false;
+  };
   el.addEventListener('touchstart', start, { passive: true });
   el.addEventListener('touchend', cancel);
   el.addEventListener('touchmove', cancel, { passive: true });

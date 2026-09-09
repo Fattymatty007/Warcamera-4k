@@ -38,6 +38,19 @@ body{
   position:relative;
   overflow:hidden;
 }
+/* This is a controls app, not a document to select text out of — and a
+   long press anywhere (see attachLongPress in main.js) has to compete
+   with the browser's own long-press-to-select/callout gesture, which
+   otherwise wins the moment a screen swaps under an still-active touch.
+   Blocking selection app-wide kills that whole class of bug in one place
+   instead of chasing it per element as new long-press UI gets added.
+   Text inputs/textareas opt back in below since typing still needs it. */
+#app, #app *{
+  -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+}
+#app input, #app textarea{
+  -webkit-user-select:text; user-select:text; -webkit-touch-callout:default;
+}
 /* top status bar */
 #statusbar{
   display:flex;
@@ -208,7 +221,6 @@ canvas{display:none;}
 .libCard{
   padding:12px; background:var(--panel2); border:1px solid var(--iron);
   cursor:pointer; margin-bottom:10px;
-  -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
 }
 .libCard:active{ border-color:var(--brass); }
 .libThumb{ width:100%; max-height:200px; object-fit:cover; border:1px solid var(--iron); display:block; margin-bottom:8px; }
