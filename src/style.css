@@ -78,7 +78,20 @@ header{
   padding:22px 20px 14px;
   border-bottom:1px solid var(--iron);
   flex-shrink:0;
+  position:relative;
 }
+/* Fixed in the same corner of the same static header on every screen (only
+   #main/#footer get re-rendered) — always the same spot to tap out of
+   whatever's on screen straight back to Home. */
+.closeBtn{
+  position:absolute; top:14px; right:16px;
+  width:30px; height:30px;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--panel2); border:1px solid var(--iron); border-radius:50%;
+  color:var(--muted); font-size:15px; line-height:1; cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.closeBtn:active{ border-color:var(--blood-bright); color:var(--blood-bright); }
 h1{
   margin:0;
   font-family: Impact, 'Arial Narrow', sans-serif;

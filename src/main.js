@@ -2556,5 +2556,15 @@ if('serviceWorker' in navigator){
   }).catch(() => {});
 }
 
+// Global "✕" in the header — same corner on every screen since the header
+// itself is static markup (only #main/#footer get re-rendered per screen)
+// — always jumps straight back to Home. stopCamera() is a no-op when
+// nothing's active, so it's safe to call unconditionally rather than
+// tracking which screens have a live camera stream open.
+document.getElementById('globalCloseBtn').onclick = () => {
+  stopCamera();
+  renderHome();
+};
+
 // init
 renderHome();
