@@ -15,6 +15,31 @@ function uid(prefix){
   return prefix + Date.now() + '_' + uidCounter;
 }
 
+// Fires onLongPress after a sustained press/hold on el, without also
+// firing the element's normal click handler for that same press. Works
+// for both touch and mouse so the desktop dev/preview flow behaves the
+// same way. The card itself still gets a plain click's usual navigation —
+// callers just need to check the flag this passes back before acting on
+// their own click listener, since a long-press's release still fires one.
+function attachLongPress(el, onLongPress, duration = 550){
+  let timer = null;
+  let fired = false;
+  const start = () => {
+    fired = false;
+    timer = setTimeout(() => { fired = true; onLongPress(); }, duration);
+  };
+  const cancel = () => { if(timer){ clearTimeout(timer); timer = null; } };
+  el.addEventListener('touchstart', start, { passive: true });
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('touchmove', cancel, { passive: true });
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', cancel);
+  el.addEventListener('mouseleave', cancel);
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+  return () => fired;
+}
+
 // Two model tiers, picked per call via the X-Gemini-Model header (see
 // api.js / worker/src/index.js) rather than a fixed worker-side model.
 // Vision identification stays on the stronger default model — it already
@@ -1247,6 +1272,61 @@ async function addDetachmentToCollection(card){
   return entry;
 }
 
+// Moves a standalone unit or Detachment card (long-pressed from the top
+// level of My Collection — see renderMoveToFolderPicker) into an existing
+// folder's own units/detachmentCards arrays, then removes the standalone
+// entry — the folder ends up holding it exactly as if it had been part of
+// that list's original upload. Skips the move (but still removes nothing)
+// if the folder already has a unit/Detachment of that same name, same
+// dedup rule the list-upload path itself uses.
+async function moveCollectionEntryToFolder(entry, folderId){
+  const list = await loadCollection();
+  const folder = list.find(f => f.id === folderId && f.isFolder);
+  if(!folder) return;
+
+  if(entry.isDetachment){
+    folder.detachmentCards = folder.detachmentCards || [];
+    const key = normalizePointsName(entry.card.displayName);
+    if(!folder.detachmentCards.some(c => normalizePointsName(c.displayName) === key)){
+      folder.detachmentCards.push(entry.card);
+    }
+  } else {
+    folder.units = folder.units || [];
+    const key = (entry.unit_name || '').toLowerCase();
+    if(!folder.units.some(u => (u.unit_name||'').toLowerCase() === key)){
+      const { id, savedAt, ...datasheet } = entry;
+      folder.units.push(datasheet);
+    }
+  }
+
+  await saveCollectionList(list.filter(x => x.id !== entry.id));
+}
+
+// "Move to..." screen shown on a long-press of a standalone unit or
+// Detachment card in My Collection — lets it be folded into an existing
+// Army List folder instead of staying its own top-level entry.
+async function renderMoveToFolderPicker(entry){
+  setStatus('', 'STANDBY');
+  const list = await loadCollection();
+  const folders = list.filter(f => f.isFolder);
+  const itemLabel = entry.isDetachment ? `${entry.card.displayName || 'Detachment'} Rules` : (entry.unit_name || 'Unknown Unit');
+
+  main.innerHTML = `
+    <div class="noteBox">Move <strong>${escapeHtml(itemLabel)}</strong> into which Army List folder?</div>
+    ${folders.length ? folders.map((f, i) => `
+      <button class="btn gold" data-move-folder-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">🗂 ${escapeHtml(f.folderName || 'Army List Units')}</button>
+    `).join('') : '<div class="noteBox">No Army List folders yet — upload a list first to create one, then move this in.</div>'}
+    <button class="btn ghost" id="moveToCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+  `;
+  folders.forEach((f, i) => {
+    document.querySelector(`[data-move-folder-idx="${i}"]`).onclick = async () => {
+      await moveCollectionEntryToFolder(entry, f.id);
+      renderCollectionList();
+    };
+  });
+  document.getElementById('moveToCancelBtn').onclick = renderCollectionList;
+}
+
 // A folder holds full looked-up datasheets from one list upload, grouped
 // together as one Collection entry — acts like a unit entry (same card,
 // same picker row when adding to a battle), but selecting it in a battle
@@ -1785,21 +1865,27 @@ async function renderCollectionList(){
   }).join('');
 
   main.innerHTML = `
-    ${list.length ? '<div class="noteBox">Tap a saved unit, folder, list, or Detachment card to reopen it.</div>' + cards : emptyNote}
+    ${list.length ? '<div class="noteBox">Tap a saved unit, folder, list, or Detachment card to reopen it. Hold a unit or Detachment card to move it into an Army List folder.</div>' + cards : emptyNote}
     <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
   `;
 
   list.forEach(u => {
     const card = main.querySelector(`.libCard[data-id="${u.id}"]`);
-    if(card){
-      card.addEventListener('click', (e) => {
-        if(e.target.closest('[data-del]')) return;
-        if(u.isFolder) renderCollectionFolderView(u);
-        else if(u.isTextList) renderTextListView(u, renderCollectionList, '← Back to Collection');
-        else if(u.isDetachment) renderDetachmentRulesView(u.card, renderCollectionList, '← Back to Collection');
-        else renderCollectionUnitView(u);
-      });
-    }
+    if(!card) return;
+    // Only a standalone unit or Detachment card has somewhere sensible to
+    // move to — a folder holds a units array and a detachmentCards array,
+    // but nothing a folder itself or a text-list's single rawText field
+    // could merge into.
+    const canMove = !u.isFolder && !u.isTextList;
+    const wasLongPress = canMove ? attachLongPress(card, () => renderMoveToFolderPicker(u)) : () => false;
+    card.addEventListener('click', (e) => {
+      if(e.target.closest('[data-del]')) return;
+      if(wasLongPress()) return;
+      if(u.isFolder) renderCollectionFolderView(u);
+      else if(u.isTextList) renderTextListView(u, renderCollectionList, '← Back to Collection');
+      else if(u.isDetachment) renderDetachmentRulesView(u.card, renderCollectionList, '← Back to Collection');
+      else renderCollectionUnitView(u);
+    });
   });
   main.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async (e) => {

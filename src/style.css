@@ -208,6 +208,7 @@ canvas{display:none;}
 .libCard{
   padding:12px; background:var(--panel2); border:1px solid var(--iron);
   cursor:pointer; margin-bottom:10px;
+  -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
 }
 .libCard:active{ border-color:var(--brass); }
 .libThumb{ width:100%; max-height:200px; object-fit:cover; border:1px solid var(--iron); display:block; margin-bottom:8px; }
