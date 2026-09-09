@@ -4,6 +4,17 @@ import jsQR from 'jsqr';
 import { callGemini } from './api.js';
 import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList } from './storage.js';
 
+// Date.now() alone isn't unique enough for ids assigned in a tight loop
+// (e.g. importing several units from a folder into a battle back to back)
+// — awaited storage calls can resolve within the same millisecond, so two
+// entries can land on the same id. A trailing counter makes each call to
+// uid() distinct even when Date.now() repeats.
+let uidCounter = 0;
+function uid(prefix){
+  uidCounter += 1;
+  return prefix + Date.now() + '_' + uidCounter;
+}
+
 // Two model tiers, picked per call via the X-Gemini-Model header (see
 // api.js / worker/src/index.js) rather than a fixed worker-side model.
 // Vision identification stays on the stronger default model — it already
@@ -977,7 +988,7 @@ function resizeImageDataUrl(dataUrl, maxDim, quality){
 // ---------- CUSTOM MODEL LIBRARY ----------
 async function addCustomModel(entry){
   const list = await loadCustomModels();
-  entry.id = 'cm_' + Date.now();
+  entry.id = uid('cm_');
   list.unshift(entry);
   // cap the library so the per-scan reference payload stays bounded
   await saveCustomModelsList(list.slice(0, 12));
@@ -1126,7 +1137,7 @@ async function getBattleById(id){
 
 async function createBattle(opponent, date){
   const list = await loadBattles();
-  const battle = { id: 'battle_'+Date.now(), opponent, date, createdAt: Date.now(), myUnits: [], opponentUnits: [] };
+  const battle = { id: uid('battle_'), opponent, date, createdAt: Date.now(), myUnits: [], opponentUnits: [] };
   list.unshift(battle);
   await saveBattlesList(list);
   return battle;
@@ -1143,7 +1154,7 @@ async function addUnitToBattle(battleId, team, unit){
   const list = await loadBattles();
   const battle = list.find(b => b.id === battleId);
   if(!battle) return;
-  const entry = Object.assign({}, unit, { id: 'u_'+Date.now(), addedAt: Date.now() });
+  const entry = Object.assign({}, unit, { id: uid('u_'), addedAt: Date.now() });
   (team === 'my' ? battle.myUnits : battle.opponentUnits).push(entry);
   await saveBattlesList(list);
 }
@@ -1163,7 +1174,7 @@ async function removeUnitFromBattle(battleId, team, unitId){
 // Gemini call, so the same physical miniature only ever gets scanned once.
 async function addUnitToCollection(unit){
   const list = await loadCollection();
-  const entry = Object.assign({}, unit, { id: 'c_'+Date.now(), savedAt: Date.now() });
+  const entry = Object.assign({}, unit, { id: uid('c_'), savedAt: Date.now() });
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -1179,7 +1190,7 @@ async function removeUnitFromCollection(unitId){
 // the raw pasted army-list text verbatim instead of a looked-up datasheet.
 async function addTextListToCollection(rawText, label){
   const list = await loadCollection();
-  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isTextList: true, listName: label || 'Imported List', rawText };
+  const entry = { id: uid('c_'), savedAt: Date.now(), isTextList: true, listName: label || 'Imported List', rawText };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -1191,7 +1202,7 @@ async function addTextListToCollection(rawText, label){
 // expands into every unit it contains instead of adding just one.
 async function addUnitsToCollectionFolder(datasheets, label, rawText, detachmentCards){
   const list = await loadCollection();
-  const entry = { id: 'c_'+Date.now(), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets, rawText: rawText || '', detachmentCards: detachmentCards || [] };
+  const entry = { id: uid('c_'), savedAt: Date.now(), isFolder: true, folderName: label || 'Army List Units', units: datasheets, rawText: rawText || '', detachmentCards: detachmentCards || [] };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
