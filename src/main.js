@@ -2543,19 +2543,56 @@ async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   };
 }
 
-// The long-press menu on an active Secondary Mission card — two real,
+// A handful of Secondary Missions carry their own discard-and-redraw
+// ability in their WHEN DRAWN text (e.g. Forward Position: "If it is the
+// first battle round, you can draw one new Secondary Mission card and
+// shuffle this card back into your Secondary Mission deck") — free, and
+// separate from New Orders entirely (no CP cost, doesn't touch the
+// once-per-battle limit). Detected generically from the card's own intro
+// text rather than a fixed name list, so a future data refresh that adds
+// or rewords cards doesn't need this list touched by hand.
+//
+// Most of these conditions are about the board (enemy unit stats,
+// positioning) — nothing the app tracks, so they're just shown as plain
+// text for the player to judge themselves, same as every other scoring
+// condition already is. Two shapes ARE something the app already knows
+// and can check for the player: "first battle round" (the tracker's own
+// turn number) and the Plunder/Cleanse pair, whose condition is literally
+// "the other one of these two is currently active for you" — checkable
+// against this same side's active secondaries.
+function cardRedrawAbility(card, side, tracker){
+  const intro = card.intro || '';
+  const isRedraw = /discard this card and draw one new|draw one new secondary mission card and shuffle this card back/i.test(intro);
+  if(!isRedraw) return null;
+  let eligible = null; // null = can't be checked here — player judges it
+  if(/first battle round/i.test(intro)){
+    eligible = tracker.turn === 1;
+  } else if(card.key === 'plunder'){
+    eligible = (side.secondaries || []).some(s => s.key === 'cleanse');
+  } else if(card.key === 'cleanse'){
+    eligible = (side.secondaries || []).some(s => s.key === 'plunder');
+  }
+  return { condition: intro, eligible };
+}
+
+// The long-press menu on an active Secondary Mission card. Three real,
 // sourced mechanics for cycling a Tactical Secondary mid-battle (see
 // scripts/fetch-secondary-missions.mjs for where "New Orders" was
 // confirmed in Wahapedia's core Stratagems.csv, and the Core Rules'
 // "Achieving Secondary Missions" step for the CP-discard): New Orders
-// (1CP, discard this card and draw a new one, once per battle per side)
-// and a plain discard for 1CP (unlimited — the achieving-secondaries step
-// doesn't cap how many times this can be used). Reuses the existing
-// .modalOverlay pattern (see showManualInstallModal) rather than a new
-// component.
+// (1CP, discard this card and draw a new one, once per battle per side),
+// a plain discard for 1CP (unlimited — the achieving-secondaries step
+// doesn't cap how many times this can be used), and — only when this
+// specific card's own text grants it — its own free discard-and-redraw
+// (see cardRedrawAbility). Reuses the existing .modalOverlay pattern (see
+// showManualInstallModal) rather than a new component.
 function showSecondaryActionMenu(battleId, team, card, tracker){
   const side = team === 'my' ? tracker.my : tracker.opponent;
   const newOrdersDisabled = side.usedNewOrders || side.cp < 1;
+  const ability = cardRedrawAbility(card, side, tracker);
+  const abilityNote = ability
+    ? `<div class="modalBody" style="margin-top:10px; font-size:10.5px;">${escapeHtml(ability.condition)}${ability.eligible === true ? ' — condition met.' : ability.eligible === false ? ' — condition not currently met.' : ' — you judge whether this applies.'}</div>`
+    : '';
   const overlay = document.createElement('div');
   overlay.className = 'modalOverlay';
   overlay.innerHTML = `
@@ -2564,6 +2601,7 @@ function showSecondaryActionMenu(battleId, team, card, tracker){
       <div class="modalBody">Choose an action for this Secondary Mission.</div>
       <button class="btn gold" id="secMenuNewOrders" style="margin-top:14px;" ${newOrdersDisabled ? 'disabled' : ''}>⚡ New Orders (1CP) — Discard &amp; Redraw${side.usedNewOrders ? ' (used)' : ''}</button>
       <button class="btn gold" id="secMenuDiscardCp" style="margin-top:8px;">💰 Discard (+1 CP)</button>
+      ${ability ? `<button class="btn gold" id="secMenuCardRedraw" style="margin-top:8px;" ${ability.eligible === false ? 'disabled' : ''}>🔄 Discard &amp; Redraw (Card Ability)</button>${abilityNote}` : ''}
       <button class="btn ghost" id="secMenuCancel" style="margin-top:8px;">✕ Cancel</button>
     </div>
   `;
@@ -2593,6 +2631,19 @@ function showSecondaryActionMenu(battleId, team, card, tracker){
     });
     renderBattleTracker(battleId, 'tracker');
   };
+  if(document.getElementById('secMenuCardRedraw')){
+    document.getElementById('secMenuCardRedraw').onclick = async () => {
+      overlay.remove();
+      const missionsData = await loadSecondaryMissionsData();
+      if(!missionsData) return;
+      await updateBattleTracker(battleId, t => {
+        const s = team === 'my' ? t.my : t.opponent;
+        discardSecondaryCard(s, card.id);
+        drawSecondaryCard(s, missionsData);
+      });
+      renderBattleTracker(battleId, 'tracker');
+    };
+  }
 }
 
 async function renderBattleTracker(battleId, tab){
