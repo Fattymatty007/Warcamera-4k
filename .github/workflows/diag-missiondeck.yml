@@ -21,6 +21,6 @@ jobs:
           m = re.search(r'id=\"Force-Disposition-Cards\"', html)
           print('anchor match:', m)
           start = m.start() if m else html.find('OPPONENT')
-          chunk = html[start:start+7000]
+          chunk = html[start+7000:start+20000]
           print(chunk)
           "
