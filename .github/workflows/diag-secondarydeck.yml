@@ -1,0 +1,40 @@
+name: DIAG Secondary Mission Deck
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the mission-deck-2026-27 page
+        run: |
+          curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
+          echo "Bytes downloaded: $(wc -c < /tmp/page.html)"
+      - name: Check the Secondary Mission deck section bounds and the "Determine Mission"/"Score Secondary" rules text
+        run: |
+          python3 -c "
+          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
+          import re
+          sm = re.search(r'id=\"Secondary-Mission-deck\"', html)
+          tw = re.search(r'id=\"Twist-deck\"', html)
+          print('Secondary-Mission-deck at', sm.start() if sm else None, 'Twist-deck at', tw.start() if tw else None)
+          if sm and tw:
+            print('span', tw.start() - sm.start())
+          # Dump the first ~4000 chars of the section, raw HTML, tags intact.
+          print('=== FIRST CHUNK ===')
+          print(html[sm.start():sm.start()+4000])
+          "
+      - name: Dump the Chapter Approved Battles rules text mentioning Secondary Mission draw/turn rules
+        run: |
+          python3 -c "
+          import re
+          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
+          text = re.sub(r'<script.*?</script>', ' ', html, flags=re.S)
+          text = re.sub(r'<style.*?</style>', ' ', text, flags=re.S)
+          text = re.sub(r'<[^>]+>', '\n', text)
+          text = re.sub(r'\n{2,}', '\n', text)
+          text = '\n'.join(l.strip() for l in text.split('\n') if l.strip())
+          idx = text.find('Select Secondary Missions')
+          print(text[idx:idx+4000])
+          "
