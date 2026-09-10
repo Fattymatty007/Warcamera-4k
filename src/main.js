@@ -2588,32 +2588,58 @@ globalCloseBtn.onclick = goBackOneScreen;
 // threading visibility into all 44 render functions) is enough to track
 // this with a single small observer.
 function isOnHome(){ return !!document.getElementById('scanBtn'); }
-function syncGlobalCloseBtnVisibility(){
-  globalCloseBtn.style.display = isOnHome() ? 'none' : 'flex';
-}
-new MutationObserver(syncGlobalCloseBtnVisibility).observe(main, { childList: true });
 
 // The phone's own back button/gesture used to just reload the app back to
 // its single starting history entry (since nothing here ever called
 // pushState), which looks like "back always dumps you on Home" no matter
-// how deep you were. Fixed with the standard SPA trick: keep one extra
-// synthetic history entry ("the cushion") sitting on top of the page's
-// real entry. Consuming it via back fires 'popstate' without actually
-// leaving the page (same document, so the browser doesn't unload
-// anything) — the handler immediately re-arms the cushion and calls the
-// exact same goBackOneScreen() the "✕" uses, so however many screens deep
-// the user is, each physical back press steps back exactly one screen
-// instead of the whole stack unwinding via browser history depth. Once
-// back reaches Home (no cushion re-armed there, matching the "✕" being
-// hidden there too), the next press is real browser back — leaving/
-// closing the app — exactly like there being no "✕" left to press either.
-history.pushState({ app: true }, '');
+// how deep you were. Fixed with the standard SPA trick: keep a real
+// history entry per screen depth, so the phone's own back mechanism has
+// something legitimate to pop each time.
+//
+// An earlier version of this pushed a fresh entry reactively from inside
+// the popstate handler itself (immediately re-arming a single "cushion"
+// entry on every back press). That worked in every scripted test here,
+// but real phones reportedly still got kicked out of the app on the very
+// first back press from some screens (reported for My Collection) — most
+// likely a real-device race between the OS's own back gesture already
+// deciding to exit and our handler's pushState landing too late to
+// matter, something a synchronous, deterministic test harness like
+// Playwright's page.goBack() would never surface. Pushing proactively
+// here instead — during ordinary forward navigation, with no gesture-
+// timing pressure at all — avoids that race entirely: by the time any
+// back press can happen, the matching history entry has been sitting
+// there for as long as the screen has been on screen.
+//
+// suppressHistoryPush prevents the *reverse* problem: goBackOneScreen()
+// changes #main just like forward navigation does, and this same
+// observer fires for that repaint too — without the flag, every back
+// press would immediately re-push a forward entry, permanently undoing
+// itself. It's true only for the duration of one popstate-triggered
+// back navigation.
+let suppressHistoryPush = false;
+function syncMainObserverEffects(){
+  globalCloseBtn.style.display = isOnHome() ? 'none' : 'flex';
+  if(!suppressHistoryPush && !isOnHome()){
+    history.pushState({ app: true }, '');
+  }
+}
+new MutationObserver(syncMainObserverEffects).observe(main, { childList: true });
+
 window.addEventListener('popstate', () => {
+  // isOnHome() here reads the DOM as it stood *before* this back press —
+  // popping history doesn't touch #main by itself, only our own code
+  // does, via goBackOneScreen() below. Home already has nothing pushed
+  // for it (see syncMainObserverEffects), so on Home this deliberately
+  // does nothing and lets the real, uncaptured back navigation proceed —
+  // leaving/closing the app, exactly like there being no "✕" to press.
   if(isOnHome()) return;
-  history.pushState({ app: true }, '');
+  suppressHistoryPush = true;
   goBackOneScreen();
+  // The MutationObserver callback above runs as a microtask, always
+  // before this next one queues — safe to clear the flag right after.
+  Promise.resolve().then(() => { suppressHistoryPush = false; });
 });
 
 // init
 renderHome();
-syncGlobalCloseBtnVisibility(); // observer callbacks are async — set the correct initial state synchronously too, so it's never visible even for a frame on first load
+syncMainObserverEffects(); // observer callbacks are async — set the correct initial state synchronously too, so the "✕" is never visible even for a frame on first load
