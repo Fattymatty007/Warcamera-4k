@@ -282,10 +282,15 @@ async function renderPrimaryMission(battleId, returnTab){
   const oppNeedsChoice = needsDispositionChoice(battle.opponentUnits, battle.opponentActiveDetachmentId);
   const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
 
+  // A resolved Detachment's card can still be an old, pre-disposition-field
+  // snapshot (see withFreshDisposition) — heal it here too, same as the
+  // Choose Active Detachment screen and the Detachment Rules card already
+  // do, or this lookup would silently fail for a battle roster saved
+  // before that field existed.
   const myDetach = resolveActiveDetachment(battle.myUnits, battle.myActiveDetachmentId);
   const oppDetach = resolveActiveDetachment(battle.opponentUnits, battle.opponentActiveDetachmentId);
-  const myDisposition = myDetach && myDetach.card.disposition;
-  const oppDisposition = oppDetach && oppDetach.card.disposition;
+  const myDisposition = myDetach && (await withFreshDisposition(myDetach.card)).disposition;
+  const oppDisposition = oppDetach && (await withFreshDisposition(oppDetach.card)).disposition;
 
   const myMission = findPrimaryMission(missionsData, myDisposition, oppDisposition);
   const oppMission = findPrimaryMission(missionsData, oppDisposition, myDisposition);
