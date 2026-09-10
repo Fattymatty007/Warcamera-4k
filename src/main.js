@@ -161,6 +161,134 @@ function loadDetachmentsData(){
 // live data (and a brand new lookup) has it. Patch it back in from the
 // current detachments-data.json by faction+name whenever a saved card is
 // about to be shown, instead of requiring the user to re-add it.
+// The Force Disposition primary mission system: each Battle Round, each
+// player's Primary Mission is looked up on their own Force Disposition card
+// using their OPPONENT's disposition as the key — so the two sides usually
+// have different missions, even between the same two players. Source is
+// Wahapedia's Mission Deck 2026-27 page (see fetch-missions.mjs); this data
+// has nothing to do with which Detachment a player brought beyond that
+// Detachment's fixed disposition (see card.disposition, force_disposition
+// in fetch-detachments.mjs) — it's the same 5-value lookup either way.
+let missionsDataPromise = null;
+function loadMissionsData(){
+  if(!missionsDataPromise){
+    missionsDataPromise = fetch('/missions-data.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return missionsDataPromise;
+}
+
+function findPrimaryMission(missionsData, playerDisposition, opponentDisposition){
+  if(!missionsData || !playerDisposition || !opponentDisposition) return null;
+  return missionsData.missions.find(m => m.playerDisposition === playerDisposition && m.opponentDisposition === opponentDisposition) || null;
+}
+
+// A mission's scoring is grouped into blocks, each headed by which Battle
+// Round(s) it applies to (e.g. "ANY BATTLE ROUND", "SECOND BATTLE ROUND
+// ONWARDS", "FIFTH BATTLE ROUND", "END OF THE BATTLE") — this turns that
+// header text back into the actual round numbers it covers, so the block
+// relevant to the tracker's current turn can be highlighted.
+const BATTLE_ROUND_ORDINALS = { FIRST: 1, SECOND: 2, THIRD: 3, FOURTH: 4, FIFTH: 5 };
+function roundsForMissionHeader(header, totalTurns){
+  const h = (header || '').toUpperCase();
+  if(h.includes('END OF THE BATTLE')) return [totalTurns];
+  if(h.includes('ANY BATTLE ROUND')){
+    const all = []; for(let i = 1; i <= totalTurns; i++) all.push(i); return all;
+  }
+  const words = h.replace(/BATTLE ROUNDS?/, '').trim().split(/\s+/).filter(Boolean);
+  if(words.includes('ONWARDS')){
+    const start = BATTLE_ROUND_ORDINALS[words[0]];
+    if(!start) return [];
+    const out = []; for(let i = start; i <= totalTurns; i++) out.push(i); return out;
+  }
+  if(words.includes('TO')){
+    const start = BATTLE_ROUND_ORDINALS[words[0]];
+    const end = BATTLE_ROUND_ORDINALS[words[words.indexOf('TO') + 1]];
+    if(!start || !end) return [];
+    const out = []; for(let i = start; i <= end; i++) out.push(i); return out;
+  }
+  if(words.includes('AND')){
+    const nums = words.map(w => BATTLE_ROUND_ORDINALS[w]).filter(Boolean);
+    if(nums.length) return nums;
+  }
+  const single = BATTLE_ROUND_ORDINALS[words[0]];
+  return single ? [single] : [];
+}
+
+function buildPrimaryMissionSideHtml(mission, sideLabel, currentTurn, totalTurns){
+  if(!mission){
+    return `
+      <div class="missionSide">
+        <div class="missionSideHead">
+          <div class="missionSideLabel">${escapeHtml(sideLabel)}</div>
+          <div class="missionFlavor" style="margin-top:6px;">No Primary Mission could be determined — this side needs a resolved Detachment (and Deposition) on both sides first.</div>
+        </div>
+      </div>
+    `;
+  }
+  const blocksHtml = mission.scoring.map(block => {
+    const rounds = roundsForMissionHeader(block.header, totalTurns);
+    const active = rounds.includes(currentTurn);
+    const entriesHtml = block.entries.map(e => `
+      <div class="missionEntry">
+        <span>${e.plus ? '+ ' : ''}${escapeHtml(e.text)}</span>
+        <span class="missionVP${e.cumulative ? ' cumulative' : ''}">${escapeHtml(e.vp)}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="missionBlock${active ? ' missionBlockActive' : ''}">
+        <div class="missionBlockHdr">${escapeHtml(block.header)}${active ? ' • THIS TURN' : ''}</div>
+        ${block.when ? `<div class="missionBlockWhen">WHEN: ${escapeHtml(block.when)}</div>` : ''}
+        ${entriesHtml}
+      </div>
+    `;
+  }).join('');
+  const actionHtml = mission.action ? `
+    <div class="missionAction">
+      <div class="missionActionName">🎯 ${escapeHtml(mission.action.displayName)} (Objective Action)</div>
+      ${mission.action.rows.map(r => `<div class="missionActionRow"><b>${escapeHtml(r.label)}:</b> ${escapeHtml(r.text)}</div>`).join('')}
+    </div>
+  ` : '';
+  return `
+    <div class="missionSide">
+      <div class="missionSideHead">
+        <div class="missionSideLabel">${escapeHtml(sideLabel)}</div>
+        <div class="missionName">${escapeHtml(mission.displayName)}</div>
+        <div class="missionFlavor">${escapeHtml(mission.flavor)}</div>
+      </div>
+      ${blocksHtml}
+      ${actionHtml}
+    </div>
+  `;
+}
+
+async function renderPrimaryMission(battleId, returnTab){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const tracker = ensureTracker(battle);
+  const missionsData = await loadMissionsData();
+
+  const myDetach = resolveActiveDetachment(battle.myUnits, battle.myActiveDetachmentId);
+  const oppDetach = resolveActiveDetachment(battle.opponentUnits, battle.opponentActiveDetachmentId);
+  const myDisposition = myDetach && myDetach.card.disposition;
+  const oppDisposition = oppDetach && oppDetach.card.disposition;
+
+  const myMission = findPrimaryMission(missionsData, myDisposition, oppDisposition);
+  const oppMission = findPrimaryMission(missionsData, oppDisposition, myDisposition);
+
+  main.innerHTML = `
+    <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    ${!missionsData ? '<div class="noteBox">Could not load mission data — check your connection and try again.</div>' : ''}
+    ${buildPrimaryMissionSideHtml(myMission, 'My Primary Mission', tracker.turn, TOTAL_TURNS)}
+    ${buildPrimaryMissionSideHtml(oppMission, `${battle.opponent}'s Primary Mission`, tracker.turn, TOTAL_TURNS)}
+  `;
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="missionBackBtn" data-nav-back>← Back to Tracker</button>`;
+  document.getElementById('missionBackBtn').onclick = () => renderBattleTracker(battleId, returnTab || 'tracker');
+}
+
 async function withFreshDisposition(card){
   if(!card || card.disposition) return card;
   const data = await loadDetachmentsData();
@@ -1848,6 +1976,15 @@ async function renderBattleCollectionPicker(battleId, team){
         </span>
       </label>
     `;
+    if(u.isDetachment) return `
+      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+        <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
+        <span style="flex:1;">
+          <div class="libName" style="margin:0;">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules</div>
+          <div class="libMeta">${escapeHtml(u.card.faction || '')}${u.card.disposition ? ' · ' + escapeHtml(u.card.disposition) : ''}</div>
+        </span>
+      </label>
+    `;
     return `
       <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
         <input type="checkbox" class="collPickCheck" data-idx="${i}" style="width:18px; height:18px; flex-shrink:0;"/>
@@ -2171,6 +2308,7 @@ function buildTrackerTabHtml(battle, tracker){
       <div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${totalVP(tracker.opponent)}</div></div>
     </div>
     <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    <button class="btn gold" id="primaryMissionBtn" style="margin-bottom:14px;">🎯 Primary Mission</button>
     ${buildSideTrackerHtml(tracker.my, 'my', 'My Army')}
     ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`)}
     <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
@@ -2220,6 +2358,10 @@ async function renderBattleTracker(battleId, tab){
   main.querySelectorAll('[data-tab]').forEach(btn => {
     btn.onclick = () => renderBattleTracker(battleId, btn.getAttribute('data-tab'));
   });
+
+  if(tab === 'tracker' && document.getElementById('primaryMissionBtn')){
+    document.getElementById('primaryMissionBtn').onclick = () => renderPrimaryMission(battleId, tab);
+  }
 
   if(tab === 'my' || tab === 'opponent'){
     wireTeamCards(battle, battleId, tab,

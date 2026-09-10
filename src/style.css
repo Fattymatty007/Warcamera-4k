@@ -357,6 +357,27 @@ table.weapons td{padding:6px 4px; border-bottom:1px solid #241d14; vertical-alig
 
 .thumb{width:100%; border:1px solid var(--iron); display:block;}
 
+/* battle tracker — primary mission */
+.missionSide{ border:1px solid var(--iron); background:var(--panel2); margin-bottom:14px; }
+.missionSideHead{ padding:14px 16px; border-bottom:2px solid var(--blood); background:var(--void); }
+.missionSideLabel{ font-size:10px; letter-spacing:2px; color:var(--brass); text-transform:uppercase; }
+.missionName{ font-family:Impact,'Arial Narrow',sans-serif; font-stretch:condensed; font-size:20px; letter-spacing:1.5px; color:var(--parchment); margin-top:2px; }
+.missionFlavor{ font-size:11px; color:var(--muted); font-style:italic; line-height:1.5; margin-top:6px; }
+
+.missionBlock{ padding:12px 16px; border-bottom:1px solid var(--iron); }
+.missionBlock:last-child{ border-bottom:none; }
+.missionBlock.missionBlockActive{ background:rgba(194,147,47,0.08); box-shadow:inset 3px 0 0 var(--brass); }
+.missionBlockHdr{ font-size:10px; letter-spacing:1.5px; color:var(--brass); text-transform:uppercase; margin-bottom:3px; }
+.missionBlockWhen{ font-size:10.5px; color:var(--muted); margin-bottom:6px; }
+.missionEntry{ display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--parchment); line-height:1.4; margin-top:4px; }
+.missionEntry .missionVP{ color:var(--brass); font-weight:bold; white-space:nowrap; font-size:11px; }
+.missionEntry .missionVP.cumulative::after{ content:" (cumul.)"; color:var(--muted); font-weight:normal; }
+
+.missionAction{ margin:10px 16px 14px; padding-top:10px; border-top:1px dashed var(--iron); }
+.missionActionName{ font-size:12px; color:var(--parchment); font-weight:bold; margin-bottom:6px; }
+.missionActionRow{ font-size:11px; color:var(--muted); line-height:1.5; margin-top:3px; }
+.missionActionRow b{ color:var(--parchment); }
+
 footer{
   padding:12px 20px 18px; flex-shrink:0; display:flex; gap:10px;
 }
