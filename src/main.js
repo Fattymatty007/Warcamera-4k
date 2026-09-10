@@ -1541,10 +1541,17 @@ function buildTeamHtml(units, team){
 
 // A roster card built by buildTeamHtml is either a real unit/text-list
 // entry (renderBattleUnitView already handles both) or a Detachment Rules
-// card, which needs the separate detachment-card viewer instead.
-function renderRosterEntry(unit, battle, onBack, backLabel){
-  if(unit.isDetachment) renderDetachmentRulesView(unit.card, onBack, backLabel);
-  else renderBattleUnitView(battle, unit, onBack, backLabel);
+// card, which needs the separate detachment-card viewer instead — always
+// passed that side's Deposition (falling back to '' rather than
+// undefined/null) so the card always shows the line, since it's attached
+// to a real battle side here.
+function renderRosterEntry(unit, battle, team, onBack, backLabel){
+  if(unit.isDetachment){
+    const deposition = (team === 'my' ? battle.myDeposition : battle.opponentDeposition) || '';
+    renderDetachmentRulesView(unit.card, onBack, backLabel, deposition);
+  } else {
+    renderBattleUnitView(battle, unit, onBack, backLabel);
+  }
 }
 
 // Wires up the roster cards buildTeamHtml renders — tap to view a unit's
@@ -1602,15 +1609,19 @@ async function renderBattleDetail(battleId){
     <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
-  wireTeamCards(battle, battleId, 'my', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
-  wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'my', (unit) => renderRosterEntry(unit, battle, 'my', () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, 'opponent', () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
   document.getElementById('myDepositionInput').addEventListener('change', (e) => {
-    saveDepositionNotes(battleId, 'my', e.target.value.trim());
+    const val = e.target.value.trim();
+    battle.myDeposition = val; // keep this render's in-memory battle in sync too — a roster card tapped later in this same render (no full reload) reads straight off this object, not a fresh fetch
+    saveDepositionNotes(battleId, 'my', val);
   });
   document.getElementById('oppDepositionInput').addEventListener('change', (e) => {
-    saveDepositionNotes(battleId, 'opponent', e.target.value.trim());
+    const val = e.target.value.trim();
+    battle.opponentDeposition = val;
+    saveDepositionNotes(battleId, 'opponent', val);
   });
   document.getElementById('startBattleTrackerBtn').onclick = async () => {
     if(!tracker.started){
@@ -2118,7 +2129,7 @@ async function renderBattleTracker(battleId, tab){
 
   if(tab === 'my' || tab === 'opponent'){
     wireTeamCards(battle, battleId, tab,
-      (unit) => renderRosterEntry(unit, battle, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
+      (unit) => renderRosterEntry(unit, battle, tab, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
       () => renderBattleTracker(battleId, tab));
     if(document.getElementById('trackerAddUnitsBtn')){
       document.getElementById('trackerAddUnitsBtn').onclick = () => {
@@ -2341,7 +2352,17 @@ function renderCollectionFolderView(entry){
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
 }
 
-function buildDetachmentRulesHtml(card){
+// depositionText: undefined/null when this card isn't attached to any
+// battle side (a standalone Collection entry, a folder's own card, a
+// fresh search result) — the Deposition line is meaningless there, so
+// it's left out entirely. A battle roster's Detachment card always
+// passes at least '' (that side's deposition just hasn't been typed in
+// yet), which still shows the line, as a placeholder prompting it be
+// set rather than silently omitting it.
+function buildDetachmentRulesHtml(card, depositionText){
+  const depositionHtml = (depositionText === undefined || depositionText === null) ? '' : `
+    <div class="sheetFaction" style="color:var(--parchment); margin-top:4px;">Deposition: ${depositionText ? escapeHtml(depositionText) : '— not set —'}</div>
+  `;
   const abilityHtml = card.ability ? `
     <div class="abilityItem">
       <div class="abilityName">${escapeHtml(card.ability.name||'')}</div>
@@ -2369,6 +2390,7 @@ function buildDetachmentRulesHtml(card){
       <div class="sheetHead">
         <div class="sheetName">${escapeHtml(card.displayName||'Detachment')}</div>
         <div class="sheetFaction">${escapeHtml(card.faction||'')} · Detachment Rules</div>
+        ${depositionHtml}
       </div>
       <div class="section">
         <div class="sectionTitle">Detachment Rule</div>
@@ -2387,9 +2409,9 @@ function buildDetachmentRulesHtml(card){
   `;
 }
 
-function renderDetachmentRulesView(card, onBack, backLabel){
+function renderDetachmentRulesView(card, onBack, backLabel, depositionText){
   setStatus('', 'STANDBY');
-  main.innerHTML = buildDetachmentRulesHtml(card);
+  main.innerHTML = buildDetachmentRulesHtml(card, depositionText);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn" data-nav-back>${escapeHtml(backLabel || '← Back')}</button>`;
   document.getElementById('detachRulesBackBtn').onclick = onBack;
