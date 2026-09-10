@@ -1,0 +1,33 @@
+name: Diagnostic - probe Wahapedia site for mission/primary names
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try candidate mission/rules pages
+        run: |
+          UA="Mozilla/5.0 (compatible; warcamera-4k-diag/1.0)"
+          for url in \
+            "https://wahapedia.ru/wh40k11ed/the-rules/missions/" \
+            "https://wahapedia.ru/wh40k11ed/the-rules/core-rules/" \
+            "https://wahapedia.ru/wh40k11ed/the-rules/" \
+            "https://wahapedia.ru/wh40k11ed/matched-play-missions/" \
+            "https://wahapedia.ru/wh40k11ed/pariah-nexus/" \
+            "https://wahapedia.ru/wh40k11ed/the-rules/pariah-nexus/" \
+            ; do
+            echo "=== $url ==="
+            code=$(curl -s -o /tmp/page.html -w "%{http_code}" -A "$UA" "$url")
+            echo "HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "--- title ---"
+              grep -oE '<title>[^<]*</title>' /tmp/page.html | head -1
+              echo "--- headings mentioning mission/primary ---"
+              grep -oiE '<h[1-4][^>]*>[^<]*</h[1-4]>' /tmp/page.html | grep -iE 'mission|primary|purge|scorched|ritual|take.?and.?hold' | head -20
+            fi
+            echo ""
+          done
+      - name: Try the site search for "primary mission"
+        run: |
+          curl -s -A "Mozilla/5.0 (compatible; warcamera-4k-diag/1.0)" "https://wahapedia.ru/wh40k11ed/" | grep -oiE 'href="[^"]*mission[^"]*"' | sort -u
