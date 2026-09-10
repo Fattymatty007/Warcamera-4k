@@ -14,9 +14,10 @@ jobs:
         run: |
           python3 -c "
           html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
+          sm = html.find('id=\"Secondary-Mission-deck\"')
           for name in ['A GRIEVOUS BLOW', 'ENGAGE ON ALL FRONTS']:
-            idx = html.find(name)
-            start = html.rfind('cgCard_pad', 0, idx)
+            idx = html.find(name, sm)
+            start = html.rfind('cgCard_pad', sm, idx)
             end = html.find('cgCard_pad', idx)
             print('=== ', name, ' ===')
             print(html[start:end])
