@@ -11,13 +11,16 @@ jobs:
         run: |
           curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
           echo "Bytes downloaded: $(wc -c < /tmp/page.html)"
-      - name: Dump raw HTML around the first Force Disposition Card (Purge the Foe), tags intact
+      - name: Locate the real Force Disposition Cards section and dump raw HTML
         run: |
           python3 -c "
           html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
-          start = html.find('Force Disposition Cards')
-          # grab generously past the first card's block so we can see the
-          # actual markup pairing each mission to an opponent icon/label
-          chunk = html[start:start+9000]
+          import re
+          # The section anchor follows the same id pattern as the other
+          # headings we already saw (id=\"FAQ\", id=\"Books\"). Find it directly.
+          m = re.search(r'id=\"Force-Disposition-Cards\"', html)
+          print('anchor match:', m)
+          start = m.start() if m else html.find('OPPONENT')
+          chunk = html[start:start+7000]
           print(chunk)
           "
