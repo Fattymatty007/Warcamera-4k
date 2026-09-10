@@ -156,7 +156,7 @@ main{
 }
 .divider::before, .divider::after{content:""; flex:1; height:1px; background:var(--iron);}
 
-input[type=text], input[type=password], input[type=date], textarea{
+input[type=text], input[type=password], input[type=date], input[type=number], textarea{
   width:100%;
   padding:14px;
   background:var(--void);
@@ -167,10 +167,65 @@ input[type=text], input[type=password], input[type=date], textarea{
   letter-spacing:1px;
   color-scheme:dark;
 }
-input[type=text]:focus, input[type=password]:focus, input[type=date]:focus, textarea:focus{outline:2px solid var(--brass); outline-offset:1px;}
-input[type=text]::placeholder, input[type=password]::placeholder{letter-spacing:normal;}
+input[type=text]:focus, input[type=password]:focus, input[type=date]:focus, input[type=number]:focus, textarea:focus{outline:2px solid var(--brass); outline-offset:1px;}
+input[type=text]::placeholder, input[type=password]::placeholder, input[type=number]::placeholder{letter-spacing:normal;}
 textarea{resize:vertical; min-height:160px; letter-spacing:normal; line-height:1.4;}
 textarea::placeholder{font-style:italic; color:var(--muted);}
+
+/* battle tracker */
+.tabBar{
+  display:flex; border:1px solid var(--iron); margin-bottom:14px;
+}
+.tabBtn{
+  flex:1; padding:12px 6px; background:var(--panel2); border:none;
+  border-right:1px solid var(--iron); color:var(--muted);
+  font-family:inherit; font-size:11px; letter-spacing:1px; text-transform:uppercase;
+  cursor:pointer;
+}
+.tabBtn:last-child{border-right:none;}
+.tabBtn.active{ background:var(--void); color:var(--brass); box-shadow:inset 0 -2px 0 var(--brass); }
+
+.vpBoard{
+  display:flex; align-items:center; border:1px solid var(--iron); background:var(--panel2); margin-bottom:10px;
+}
+.vpSide{ flex:1; text-align:center; padding:14px 6px; }
+.vpLabel{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+.vpTotal{ font-family:Impact,'Arial Narrow',sans-serif; font-stretch:condensed; font-size:34px; color:var(--brass); margin-top:2px; }
+.vpVs{ font-size:11px; color:var(--muted); letter-spacing:2px; padding:0 4px; }
+
+.turnBadge{
+  text-align:center; padding:8px; margin-bottom:14px;
+  border:1px solid var(--iron); background:var(--void);
+  font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--parchment);
+}
+
+.trackerSide{ border:1px solid var(--iron); background:var(--panel2); padding:14px; margin-bottom:12px; }
+.counterRow{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.counterLabel{ flex:1; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+.counterRow input[type=number]{ width:80px; padding:8px; }
+.counterBtn{
+  width:34px; height:34px; border-radius:50%; border:1px solid var(--iron);
+  background:var(--void); color:var(--brass); font-size:18px; line-height:1; cursor:pointer;
+}
+.counterBtn:active{ border-color:var(--brass); }
+.counterVal{ min-width:28px; text-align:center; font-size:16px; color:var(--parchment); font-weight:bold; }
+
+.secListLabel{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin:10px 0 6px; }
+.secItem{
+  display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #241d14;
+}
+.secItem:last-of-type{ border-bottom:none; }
+.secLabel{ flex:1; display:flex; align-items:center; gap:8px; cursor:pointer; }
+.secLabel input[type=checkbox]{ width:18px; height:18px; flex-shrink:0; }
+.secName{ flex:1; font-size:12px; color:var(--parchment); }
+.secName.scored{ color:var(--good); text-decoration:line-through; }
+.secPts{ font-size:11px; color:var(--brass); white-space:nowrap; }
+.secRemoveBtn{
+  background:none; border:none; color:var(--muted); font-size:14px; cursor:pointer; padding:4px;
+}
+.secAddRow{ display:flex; gap:6px; margin-top:10px; }
+.secAddRow input[type=text]{ flex:2; padding:10px; }
+.secAddRow input[type=number]{ flex:1; padding:10px; }
 
 /* camera view */
 #camWrap{

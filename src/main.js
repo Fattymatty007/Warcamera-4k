@@ -1247,6 +1247,45 @@ async function removeUnitFromBattle(battleId, team, unitId){
   await saveBattlesList(list);
 }
 
+// ---------- BATTLE TRACKER (live in-game VP/CP/secondaries/turn) ----------
+// Battles created before this feature has no .tracker at all — this lazily
+// gives it the default shape in place, so every tracker screen can just
+// read battle.tracker without an existence check of its own. Points come
+// from two places per side, matching how 40k is actually scored: primaryVP
+// is typed in directly by the player (primary scoring is read off the
+// mission's own scoring table, not something this app knows), while
+// secondary VP is never typed in at all — it's the sum of whichever
+// free-form secondaries that side has ticked as scored (see totalVP).
+function ensureTracker(battle){
+  if(!battle.tracker){
+    battle.tracker = {
+      started: false, finished: false, turn: 1,
+      my: { cp: 0, primaryVP: 0, secondaries: [] },
+      opponent: { cp: 0, primaryVP: 0, secondaries: [] },
+    };
+  }
+  return battle.tracker;
+}
+
+function totalVP(side){
+  const secondaryVP = (side.secondaries || []).reduce((sum, s) => sum + (s.scored ? (s.points || 0) : 0), 0);
+  return (side.primaryVP || 0) + secondaryVP;
+}
+
+// Shared by every tracker interaction (CP +/-, VP edit, add/toggle/remove
+// a secondary, advance the turn, finish the game) — loads the battle,
+// makes sure .tracker exists, hands it to the caller to mutate in place,
+// then saves. Returns the updated battle so callers can re-render from it
+// without a second read.
+async function updateBattleTracker(battleId, mutateFn){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return null;
+  mutateFn(ensureTracker(battle));
+  await saveBattlesList(list);
+  return battle;
+}
+
 // ---------- COLLECTION (saved units, reusable across battles) ----------
 // A datasheet saved here is a standalone copy, same pattern as a battle
 // roster entry — reopening or adding it to a battle never needs another
@@ -1446,6 +1485,52 @@ function renderNewBattleForm(){
 }
 
 // ---------- SCREEN: BATTLE DETAIL ----------
+// Shared by renderBattleDetail and the Battle Tracker's My Army/Opponent's
+// Army tabs — same roster cards, same remove button, in both places.
+function buildTeamHtml(units, team){
+  if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
+  // The army list's own text card always reads first, regardless of when
+  // it was added relative to the units — everything else keeps its
+  // existing (list) order.
+  const ordered = [...units].sort((a, b) => (b.isTextList?1:0) - (a.isTextList?1:0));
+  return ordered.map(u => u.isTextList ? `
+    <div class="libCard" data-unit="${u.id}" data-team="${team}">
+      <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+      <div class="libMeta">Text document</div>
+      <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+    </div>
+  ` : `
+    <div class="libCard" data-unit="${u.id}" data-team="${team}">
+      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+      <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+    </div>
+  `).join('');
+}
+
+// Wires up the roster cards buildTeamHtml renders — tap to view a unit's
+// datasheet (onUnitTap), tap Remove to pull it from the roster
+// (re-rendering via onAfterRemove, since the two callers refresh
+// different screens: the plain roster view refreshes itself, the Battle
+// Tracker's army tab refreshes that same tab).
+function wireTeamCards(battle, battleId, team, onUnitTap, onAfterRemove){
+  const units = team === 'my' ? battle.myUnits : battle.opponentUnits;
+  main.querySelectorAll(`[data-unit][data-team="${team}"]`).forEach(card => {
+    card.addEventListener('click', (e) => {
+      if(e.target.closest('[data-remove]')) return;
+      const unit = units.find(u => u.id === card.getAttribute('data-unit'));
+      if(unit) onUnitTap(unit);
+    });
+  });
+  main.querySelectorAll(`[data-remove-team="${team}"]`).forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await removeUnitFromBattle(battleId, team, btn.getAttribute('data-remove'));
+      onAfterRemove();
+    });
+  });
+}
+
 async function renderBattleDetail(battleId){
   clearFooter();
   setStatus('', 'STANDBY');
@@ -1454,27 +1539,11 @@ async function renderBattleDetail(battleId){
 
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
+  const tracker = ensureTracker(battle); // in-memory default is fine here — only persisted once Start Battle is actually pressed
 
-  const buildTeamHtml = (units, team) => {
-    if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
-    // The army list's own text card always reads first, regardless of when
-    // it was added relative to the units — everything else keeps its
-    // existing (list) order.
-    const ordered = [...units].sort((a, b) => (b.isTextList?1:0) - (a.isTextList?1:0));
-    return ordered.map(u => u.isTextList ? `
-      <div class="libCard" data-unit="${u.id}" data-team="${team}">
-        <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
-        <div class="libMeta">Text document</div>
-        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
-      </div>
-    ` : `
-      <div class="libCard" data-unit="${u.id}" data-team="${team}">
-        <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
-        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
-      </div>
-    `).join('');
-  };
+  const battleBtnLabel = tracker.finished ? '📊 View Battle Tracker'
+    : tracker.started ? '⚔️ Continue Battle'
+    : '⚔️ Start Battle';
 
   main.innerHTML = `
     <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
@@ -1485,29 +1554,22 @@ async function renderBattleDetail(battleId){
     ${buildTeamHtml(battle.opponentUnits, 'opponent')}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
+    <button class="btn gold" id="startBattleTrackerBtn">${battleBtnLabel}</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
     <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
-  main.querySelectorAll('[data-unit]').forEach(card => {
-    card.addEventListener('click', (e) => {
-      if(e.target.closest('[data-remove]')) return;
-      const unitId = card.getAttribute('data-unit');
-      const team = card.getAttribute('data-team');
-      const unit = (team === 'my' ? battle.myUnits : battle.opponentUnits).find(u => u.id === unitId);
-      if(unit) renderBattleUnitView(battle, unit);
-    });
-  });
-  main.querySelectorAll('[data-remove]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await removeUnitFromBattle(battleId, btn.getAttribute('data-remove-team'), btn.getAttribute('data-remove'));
-      renderBattleDetail(battleId);
-    });
-  });
+  wireTeamCards(battle, battleId, 'my', (unit) => renderBattleUnitView(battle, unit), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'opponent', (unit) => renderBattleUnitView(battle, unit), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
+  document.getElementById('startBattleTrackerBtn').onclick = async () => {
+    if(!tracker.started){
+      await updateBattleTracker(battleId, t => { t.started = true; });
+    }
+    renderBattleTracker(battleId, 'tracker');
+  };
   document.getElementById('deleteBattleBtn').onclick = () => renderDeleteBattleConfirm(battle);
   document.getElementById('battleDetailHomeBtn').onclick = renderHome;
   // The visible footer button intentionally jumps straight Home (a
@@ -1868,16 +1930,233 @@ function renderImportSummary(battleId, succeeded, failed){
 }
 
 // ---------- SCREEN: BATTLE — VIEW A SAVED UNIT (read-only) ----------
-function renderBattleUnitView(battle, unit){
+// onBack/backLabel default to returning to the plain roster screen (the
+// only caller before the Battle Tracker existed) — the tracker's army
+// tabs pass their own, so tapping a unit from there returns to that same
+// tab instead of dropping out of the tracker.
+function renderBattleUnitView(battle, unit, onBack, backLabel){
+  onBack = onBack || (() => renderBattleDetail(battle.id));
+  backLabel = backLabel || '← Back to Battle';
   setStatus('', 'STANDBY');
   if(unit.isTextList){
-    renderTextListView(unit, () => renderBattleDetail(battle.id), '← Back to Battle');
+    renderTextListView(unit, onBack, backLabel);
     return;
   }
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>← Back to Battle</button>`;
-  document.getElementById('unitBackBtn').onclick = () => renderBattleDetail(battle.id);
+  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>`;
+  document.getElementById('unitBackBtn').onclick = onBack;
+}
+
+// ---------- SCREEN: BATTLE TRACKER (live in-game VP/CP/secondaries/turn) ----------
+const TOTAL_TURNS = 5;
+
+function buildSideTrackerHtml(side, team, label){
+  const secondaries = side.secondaries || [];
+  const secHtml = secondaries.map(s => `
+    <div class="secItem">
+      <label class="secLabel">
+        <input type="checkbox" class="secScoredCheck" data-sec-team="${team}" data-sec-id="${s.id}" ${s.scored ? 'checked' : ''}/>
+        <span class="secName${s.scored ? ' scored' : ''}">${escapeHtml(s.name)}</span>
+        <span class="secPts">${s.points || 0} pts</span>
+      </label>
+      <button class="secRemoveBtn" data-sec-remove-team="${team}" data-sec-remove-id="${s.id}" aria-label="Remove secondary">✕</button>
+    </div>
+  `).join('') || `<div class="loadSub">No secondaries added yet.</div>`;
+
+  return `
+    <div class="trackerSide">
+      <div class="sectionTitle">${escapeHtml(label)}</div>
+      <div class="counterRow">
+        <span class="counterLabel">CP</span>
+        <button class="counterBtn" data-cp-team="${team}" data-cp-delta="-1">−</button>
+        <span class="counterVal" id="cpVal-${team}">${side.cp}</span>
+        <button class="counterBtn" data-cp-team="${team}" data-cp-delta="1">+</button>
+      </div>
+      <div class="counterRow">
+        <span class="counterLabel">Primary VP</span>
+        <input type="number" class="vpInput" data-vp-team="${team}" min="0" value="${side.primaryVP}"/>
+      </div>
+      <div class="secListLabel">Secondaries (tap to mark scored)</div>
+      ${secHtml}
+      <div class="secAddRow">
+        <input type="text" class="secNameInput" data-sec-name-team="${team}" placeholder="Secondary name"/>
+        <input type="number" class="secPtsInput" data-sec-pts-team="${team}" placeholder="Pts" min="0"/>
+        <button class="btn gold" data-sec-add-team="${team}">+ Add</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildTrackerTabHtml(battle, tracker){
+  if(tracker.finished){
+    const myTotal = totalVP(tracker.my), oppTotal = totalVP(tracker.opponent);
+    const verdict = myTotal === oppTotal ? 'Tied Game' : myTotal > oppTotal ? '🏆 You Win!' : `🏆 ${escapeHtml(battle.opponent)} Wins`;
+    return `
+      <div class="noteBox" style="text-align:center; font-size:14px; letter-spacing:2px; color:var(--brass); text-transform:uppercase; border:none;">Game Complete</div>
+      <div class="vpBoard"><div class="vpSide"><div class="vpLabel">My Army</div><div class="vpTotal">${myTotal}</div></div><div class="vpVs">VS</div><div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${oppTotal}</div></div></div>
+      <div class="noteBox" style="text-align:center; font-size:16px; color:var(--parchment); border:none;">${verdict}</div>
+      ${buildSideTrackerReadOnlyHtml(tracker.my, 'My Army')}
+      ${buildSideTrackerReadOnlyHtml(tracker.opponent, battle.opponent)}
+    `;
+  }
+  return `
+    <div class="vpBoard">
+      <div class="vpSide"><div class="vpLabel">My Army</div><div class="vpTotal">${totalVP(tracker.my)}</div></div>
+      <div class="vpVs">VS</div>
+      <div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${totalVP(tracker.opponent)}</div></div>
+    </div>
+    <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    ${buildSideTrackerHtml(tracker.my, 'my', 'My Army')}
+    ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`)}
+    <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
+  `;
+}
+
+function buildSideTrackerReadOnlyHtml(side, label){
+  const scored = (side.secondaries || []).filter(s => s.scored);
+  const secHtml = scored.map(s => `<div class="secItem"><span class="secName scored">${escapeHtml(s.name)}</span><span class="secPts">${s.points || 0} pts</span></div>`).join('') || `<div class="loadSub">No secondaries scored.</div>`;
+  return `
+    <div class="trackerSide">
+      <div class="sectionTitle">${escapeHtml(label)} — Final</div>
+      <div class="counterRow"><span class="counterLabel">CP Remaining</span><span class="counterVal">${side.cp}</span></div>
+      <div class="counterRow"><span class="counterLabel">Primary VP</span><span class="counterVal">${side.primaryVP || 0}</span></div>
+      <div class="secListLabel">Secondaries Scored</div>
+      ${secHtml}
+    </div>
+  `;
+}
+
+async function renderBattleTracker(battleId, tab){
+  tab = tab || 'tracker';
+  clearFooter();
+  setStatus('', 'STANDBY');
+  currentBattleContext = null;
+  renderLoading('OPENING ARCHIVE', 'Loading battle tracker…');
+
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const tracker = ensureTracker(battle);
+
+  const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my')
+    : tab === 'opponent' ? buildTeamHtml(battle.opponentUnits, 'opponent')
+    : buildTrackerTabHtml(battle, tracker);
+  const showAddUnits = (tab === 'my' || tab === 'opponent') && !tracker.finished;
+
+  main.innerHTML = `
+    <div class="tabBar">
+      <button class="tabBtn${tab==='my'?' active':''}" data-tab="my">My Army</button>
+      <button class="tabBtn${tab==='opponent'?' active':''}" data-tab="opponent">${escapeHtml(battle.opponent)}</button>
+      <button class="tabBtn${tab==='tracker'?' active':''}" data-tab="tracker">Tracker</button>
+    </div>
+    ${tabHtml}
+    ${showAddUnits ? `<button class="btn ghost" id="trackerAddUnitsBtn" style="margin-top:10px;">➕ Add Units to ${tab==='my'?'My Army':escapeHtml(battle.opponent)+"'s Army"}</button>` : ''}
+  `;
+
+  main.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.onclick = () => renderBattleTracker(battleId, btn.getAttribute('data-tab'));
+  });
+
+  if(tab === 'my' || tab === 'opponent'){
+    wireTeamCards(battle, battleId, tab,
+      (unit) => renderBattleUnitView(battle, unit, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
+      () => renderBattleTracker(battleId, tab));
+    if(document.getElementById('trackerAddUnitsBtn')){
+      document.getElementById('trackerAddUnitsBtn').onclick = () => {
+        // renderBattleScanChoice normally sets this before handing off to
+        // renderBattleScanEntry — going there directly (already knowing
+        // which side, since we're on that side's own tab) needs to set it
+        // here instead, or a scanned/searched unit would never actually
+        // get added to the battle.
+        currentBattleContext = { battleId, team: tab, returnToTracker: true };
+        renderBattleScanEntry(battleId, tab);
+      };
+    }
+  }
+
+  if(tab === 'tracker' && !tracker.finished){
+    main.querySelectorAll('[data-cp-delta]').forEach(btn => {
+      btn.onclick = async () => {
+        const team = btn.getAttribute('data-cp-team');
+        const delta = parseInt(btn.getAttribute('data-cp-delta'), 10);
+        await updateBattleTracker(battleId, t => { t[team].cp = Math.max(0, t[team].cp + delta); });
+        renderBattleTracker(battleId, 'tracker');
+      };
+    });
+    main.querySelectorAll('[data-vp-team]').forEach(input => {
+      input.addEventListener('change', async () => {
+        const team = input.getAttribute('data-vp-team');
+        const val = Math.max(0, parseInt(input.value, 10) || 0);
+        await updateBattleTracker(battleId, t => { t[team].primaryVP = val; });
+        renderBattleTracker(battleId, 'tracker');
+      });
+    });
+    main.querySelectorAll('[data-sec-add-team]').forEach(btn => {
+      btn.onclick = async () => {
+        const team = btn.getAttribute('data-sec-add-team');
+        const nameInput = main.querySelector(`[data-sec-name-team="${team}"]`);
+        const ptsInput = main.querySelector(`[data-sec-pts-team="${team}"]`);
+        const name = nameInput.value.trim();
+        if(!name) return;
+        const points = Math.max(0, parseInt(ptsInput.value, 10) || 0);
+        await updateBattleTracker(battleId, t => {
+          t[team].secondaries = t[team].secondaries || [];
+          t[team].secondaries.push({ id: uid('sec_'), name, points, scored: false });
+        });
+        renderBattleTracker(battleId, 'tracker');
+      };
+    });
+    main.querySelectorAll('.secScoredCheck').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const team = cb.getAttribute('data-sec-team');
+        const secId = cb.getAttribute('data-sec-id');
+        await updateBattleTracker(battleId, t => {
+          const s = (t[team].secondaries || []).find(x => x.id === secId);
+          if(s) s.scored = cb.checked;
+        });
+        renderBattleTracker(battleId, 'tracker');
+      });
+    });
+    main.querySelectorAll('[data-sec-remove-id]').forEach(btn => {
+      btn.onclick = async () => {
+        const team = btn.getAttribute('data-sec-remove-team');
+        const secId = btn.getAttribute('data-sec-remove-id');
+        await updateBattleTracker(battleId, t => {
+          t[team].secondaries = (t[team].secondaries || []).filter(s => s.id !== secId);
+        });
+        renderBattleTracker(battleId, 'tracker');
+      };
+    });
+    document.getElementById('finishTurnBtn').onclick = async () => {
+      if(tracker.turn >= TOTAL_TURNS){
+        renderFinishGameConfirm(battleId);
+        return;
+      }
+      await updateBattleTracker(battleId, t => { t.turn += 1; });
+      renderBattleTracker(battleId, 'tracker');
+    };
+  }
+
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="trackerBackBtn" data-nav-back>← Back to Battle</button>`;
+  document.getElementById('trackerBackBtn').onclick = () => renderBattleDetail(battleId);
+}
+
+function renderFinishGameConfirm(battleId){
+  setStatus('', 'STANDBY');
+  main.innerHTML = `
+    <div class="errBox">
+      <div class="errTitle">Finish the Game?</div>
+      This locks in the final VP, CP, and secondaries for both sides. Nothing on the tracker can be changed after this.
+    </div>
+    <button class="btn primary" id="confirmFinishGameBtn" style="margin-top:14px;">✓ Yes, Finish Game</button>
+    <button class="btn ghost" id="cancelFinishGameBtn" data-nav-back>← Cancel</button>
+  `;
+  document.getElementById('confirmFinishGameBtn').onclick = async () => {
+    await updateBattleTracker(battleId, t => { t.finished = true; });
+    renderBattleTracker(battleId, 'tracker');
+  };
+  document.getElementById('cancelFinishGameBtn').onclick = () => renderBattleTracker(battleId, 'tracker');
 }
 
 // ---------- SCREEN: MY COLLECTION ----------
@@ -2490,7 +2769,11 @@ function renderDatasheetSheetView(d, battleNote, actionNote){
     document.getElementById('scanMoreForBattle').onclick = () => renderBattleScanEntry(ctx.battleId, ctx.team);
     document.getElementById('backToBattleBtn').onclick = () => {
       currentBattleContext = null;
-      renderBattleDetail(ctx.battleId);
+      // Reaching this screen via the Battle Tracker's own "Add Units"
+      // (see renderBattleTracker) sets returnToTracker so finishing here
+      // goes back to that same tab, not the plain roster screen.
+      if(ctx.returnToTracker) renderBattleTracker(ctx.battleId, ctx.team);
+      else renderBattleDetail(ctx.battleId);
     };
   } else {
     footer.innerHTML = `
@@ -2629,12 +2912,27 @@ function isOnHome(){ return !!document.getElementById('scanBtn'); }
 //    same over-pushing problem from the *other* direction. A macrotask
 //    always runs after the full microtask queue (and everything chained
 //    off it, however many awaits deep) has drained.
+// 3. lastKnownBackId tracks the id of whichever data-nav-back element is
+//    currently on screen, and a push only happens when that id actually
+//    *changes* — a screen re-rendering itself in place (a tab switch on
+//    a multi-tab screen like the Battle Tracker, or the Send-to-Folder
+//    confirmation note) keeps the same id and correctly gets no new
+//    entry, while a genuinely different screen (even one sharing another
+//    screen's id from earlier, like two different folders) still does.
+//    Always kept in sync regardless of suppression, so it can't drift
+//    stale across a back navigation and wrongly skip a push afterward.
 let suppressHistoryPush = false;
+let lastKnownBackId = null;
 function syncMainObserverEffects(){
   const onHome = isOnHome();
   globalCloseBtn.style.display = onHome ? 'none' : 'flex';
-  if(suppressHistoryPush || onHome) return;
-  if(!document.querySelector('[data-nav-back]')) return; // transient screen (loading spinner, mainly) — nothing to anchor a history entry to
+  if(onHome){ lastKnownBackId = null; return; }
+  const backTarget = document.querySelector('[data-nav-back]');
+  const currentId = backTarget ? (backTarget.id || 'anon') : null;
+  if(!currentId) return; // transient screen (loading spinner, mainly) — nothing to anchor a history entry to, and no identity worth remembering
+  const isNewScreen = currentId !== lastKnownBackId;
+  lastKnownBackId = currentId;
+  if(suppressHistoryPush || !isNewScreen) return;
   history.pushState({ app: true }, '');
 }
 new MutationObserver(syncMainObserverEffects).observe(main, { childList: true });
