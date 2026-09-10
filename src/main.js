@@ -2451,6 +2451,7 @@ function buildTrackerTabHtml(battle, tracker){
     ${buildSideTrackerHtml(tracker.my, 'my', 'My Army', tracker.turn)}
     ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`, tracker.turn)}
     <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
+    ${tracker.turn > 1 ? '<button class="btn ghost" id="prevTurnBtn" style="margin-top:8px; font-size:11px; padding:12px 18px;">⬅ Previous Turn</button>' : ''}
   `;
 }
 
@@ -2772,11 +2773,24 @@ async function renderBattleTracker(battleId, tab){
       // instead of requiring a manual scroll up.
       main.scrollTop = 0;
     };
+    if(document.getElementById('prevTurnBtn')){
+      document.getElementById('prevTurnBtn').onclick = async () => {
+        await updateBattleTracker(battleId, t => { t.turn = Math.max(1, t.turn - 1); });
+        await renderBattleTracker(battleId, 'tracker');
+        main.scrollTop = 0;
+      };
+    }
   }
 
-  footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="trackerBackBtn" data-nav-back>← Back to Battle</button>`;
-  document.getElementById('trackerBackBtn').onclick = () => renderBattleDetail(battleId);
+  // No visible footer while actively in a battle — the header's "✕" already
+  // steps back to Battle Detail one screen at a time, so a second, always-
+  // on "← Back to Battle" button here was redundant. A hidden marker keeps
+  // that same nav-history/✕ behavior working correctly (see
+  // battleDetailBackTarget for the identical pattern) without showing
+  // anything for it.
+  footer.style.display = 'none';
+  main.insertAdjacentHTML('beforeend', `<button id="trackerBackTarget" data-nav-back style="display:none;"></button>`);
+  document.getElementById('trackerBackTarget').onclick = () => renderBattleDetail(battleId);
 }
 
 function renderFinishGameConfirm(battleId){
