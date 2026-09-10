@@ -1890,17 +1890,17 @@ async function renderBattleDetail(battleId){
 
   main.innerHTML = `
     <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
-    <div class="sectionTitle" style="padding:0 2px;">My Army (${battle.myUnits.length})</div>
+    <button class="btn primary" id="scanForBattleBtn">➕ Add Units</button>
+    ${hasMultipleDetachments ? `<button class="btn gold" id="chooseDetachBtn" style="margin-top:6px;">${needsChoice ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>` : ''}
+    <button class="btn gold" id="startBattleTrackerBtn" style="margin-top:6px;">${battleBtnLabel}</button>
+    <button class="btn ghost" id="deleteBattleBtn" style="margin-top:6px;">🗑 Delete This Battle</button>
+    <button class="btn ghost" id="battleDetailHomeBtn" style="margin-top:6px;">🏠 Home</button>
+    <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">My Army (${battle.myUnits.length})</div>
     ${buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)}
     ${battle.myUnits.length ? '<button class="btn ghost" id="shareMyQrBtn" style="margin-top:6px;">📤 Share My Army as QR</button>' : ''}
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
     ${buildTeamHtml(battle.opponentUnits, 'opponent', battle.opponentActiveDetachmentId)}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
-    <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
-    ${hasMultipleDetachments ? `<button class="btn gold" id="chooseDetachBtn" style="margin-top:6px;">${needsChoice ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>` : ''}
-    <button class="btn gold" id="startBattleTrackerBtn">${battleBtnLabel}</button>
-    <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
-    <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
     <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
