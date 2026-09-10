@@ -1286,24 +1286,6 @@ async function updateBattleTracker(battleId, mutateFn){
   return battle;
 }
 
-// Each side's Deposition — the 40k term for which primary mission that
-// army is playing to score against — free-form text, one field per side,
-// filled in on Battle Detail before Start Battle. There's no free live
-// source to build a fixed list of official mission names from (checked;
-// Wahapedia's structured data export has no missions table, and its
-// rendered mission-rules page couldn't be scraped this round either —
-// same open-ended approach as the tracker's secondaries for the same
-// reason). Lives directly on the battle, not under .tracker, since it's
-// setup info rather than in-game tracker state.
-async function saveDepositionNotes(battleId, team, text){
-  const list = await loadBattles();
-  const battle = list.find(b => b.id === battleId);
-  if(!battle) return;
-  if(team === 'my') battle.myDeposition = text;
-  else battle.opponentDeposition = text;
-  await saveBattlesList(list);
-}
-
 // ---------- COLLECTION (saved units, reusable across battles) ----------
 // A datasheet saved here is a standalone copy, same pattern as a battle
 // roster entry — reopening or adding it to a battle never needs another
@@ -1541,14 +1523,10 @@ function buildTeamHtml(units, team){
 
 // A roster card built by buildTeamHtml is either a real unit/text-list
 // entry (renderBattleUnitView already handles both) or a Detachment Rules
-// card, which needs the separate detachment-card viewer instead — always
-// passed that side's Deposition (falling back to '' rather than
-// undefined/null) so the card always shows the line, since it's attached
-// to a real battle side here.
-function renderRosterEntry(unit, battle, team, onBack, backLabel){
+// card, which needs the separate detachment-card viewer instead.
+function renderRosterEntry(unit, battle, onBack, backLabel){
   if(unit.isDetachment){
-    const deposition = (team === 'my' ? battle.myDeposition : battle.opponentDeposition) || '';
-    renderDetachmentRulesView(unit.card, onBack, backLabel, deposition);
+    renderDetachmentRulesView(unit.card, onBack, backLabel);
   } else {
     renderBattleUnitView(battle, unit, onBack, backLabel);
   }
@@ -1599,9 +1577,6 @@ async function renderBattleDetail(battleId){
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
     ${buildTeamHtml(battle.opponentUnits, 'opponent')}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
-    <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">Deposition</div>
-    <input type="text" id="myDepositionInput" placeholder="My deposition (primary mission)" value="${escapeHtml(battle.myDeposition || '')}"/>
-    <input type="text" id="oppDepositionInput" placeholder="${escapeHtml(battle.opponent)}'s deposition" value="${escapeHtml(battle.opponentDeposition || '')}" style="margin-top:8px;"/>
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
     <button class="btn gold" id="startBattleTrackerBtn">${battleBtnLabel}</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
@@ -1609,20 +1584,10 @@ async function renderBattleDetail(battleId){
     <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
-  wireTeamCards(battle, battleId, 'my', (unit) => renderRosterEntry(unit, battle, 'my', () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
-  wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, 'opponent', () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'my', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
-  document.getElementById('myDepositionInput').addEventListener('change', (e) => {
-    const val = e.target.value.trim();
-    battle.myDeposition = val; // keep this render's in-memory battle in sync too — a roster card tapped later in this same render (no full reload) reads straight off this object, not a fresh fetch
-    saveDepositionNotes(battleId, 'my', val);
-  });
-  document.getElementById('oppDepositionInput').addEventListener('change', (e) => {
-    const val = e.target.value.trim();
-    battle.opponentDeposition = val;
-    saveDepositionNotes(battleId, 'opponent', val);
-  });
   document.getElementById('startBattleTrackerBtn').onclick = async () => {
     if(!tracker.started){
       await updateBattleTracker(battleId, t => { t.started = true; });
@@ -2129,7 +2094,7 @@ async function renderBattleTracker(battleId, tab){
 
   if(tab === 'my' || tab === 'opponent'){
     wireTeamCards(battle, battleId, tab,
-      (unit) => renderRosterEntry(unit, battle, tab, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
+      (unit) => renderRosterEntry(unit, battle, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
       () => renderBattleTracker(battleId, tab));
     if(document.getElementById('trackerAddUnitsBtn')){
       document.getElementById('trackerAddUnitsBtn').onclick = () => {
@@ -2352,17 +2317,18 @@ function renderCollectionFolderView(entry){
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
 }
 
-// depositionText: undefined/null when this card isn't attached to any
-// battle side (a standalone Collection entry, a folder's own card, a
-// fresh search result) — the Deposition line is meaningless there, so
-// it's left out entirely. A battle roster's Detachment card always
-// passes at least '' (that side's deposition just hasn't been typed in
-// yet), which still shows the line, as a placeholder prompting it be
-// set rather than silently omitting it.
-function buildDetachmentRulesHtml(card, depositionText){
-  const depositionHtml = (depositionText === undefined || depositionText === null) ? '' : `
-    <div class="sheetFaction" style="color:var(--parchment); margin-top:4px;">Deposition: ${depositionText ? escapeHtml(depositionText) : '— not set —'}</div>
-  `;
+// Deposition (Purge the Foe, Take and Hold, Reconnaissance, Priority
+// Assets, or Disruption) is assigned to a Detachment directly by the
+// rules — it's a fixed property of card.disposition (from
+// Detachments.csv's force_disposition column, see fetch-detachments.mjs),
+// never something a player enters, so it always shows here whenever the
+// card has one. Blank only for Boarding Actions-type detachments (a
+// separate, smaller-scale game mode this data already excludes
+// stratagems for elsewhere).
+function buildDetachmentRulesHtml(card){
+  const depositionHtml = card.disposition ? `
+    <div class="sheetFaction" style="color:var(--parchment); margin-top:4px;">Deposition: ${escapeHtml(card.disposition)}</div>
+  ` : '';
   const abilityHtml = card.ability ? `
     <div class="abilityItem">
       <div class="abilityName">${escapeHtml(card.ability.name||'')}</div>
@@ -2409,9 +2375,9 @@ function buildDetachmentRulesHtml(card, depositionText){
   `;
 }
 
-function renderDetachmentRulesView(card, onBack, backLabel, depositionText){
+function renderDetachmentRulesView(card, onBack, backLabel){
   setStatus('', 'STANDBY');
-  main.innerHTML = buildDetachmentRulesHtml(card, depositionText);
+  main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn" data-nav-back>${escapeHtml(backLabel || '← Back')}</button>`;
   document.getElementById('detachRulesBackBtn').onclick = onBack;

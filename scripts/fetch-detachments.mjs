@@ -110,9 +110,16 @@ async function main() {
       description: (s.description || '').trim(),
     }));
 
+    // force_disposition — one of a fixed set (Purge the Foe, Take and
+    // Hold, Reconnaissance, Priority Assets, Disruption) assigned to each
+    // Detachment directly by the rules, not something a player chooses —
+    // this is what the app calls a Detachment's "Deposition". Blank for
+    // Boarding Actions-type detachments (a separate, smaller-scale game
+    // mode this app already excludes stratagems for above).
     const record = {
       displayName: stripHtml(d.name),
       faction: factionName,
+      disposition: stripHtml(d.force_disposition),
       ability: ability ? { name: stripHtml(ability.name), description: (ability.description || '').trim() } : null,
       enhancements: dEnhancements,
       stratagems: dStratagems,
