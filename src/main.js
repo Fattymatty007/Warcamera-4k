@@ -304,7 +304,7 @@ async function renderPrimaryMission(battleId, returnTab){
     : '';
 
   main.innerHTML = `
-    <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    <div class="turnBadge">Turn ${tracker.turn}</div>
     ${needsChoiceNote}
     ${detachButtonHtml}
     ${!missionsData ? '<div class="noteBox">Could not load mission data — check your connection and try again.</div>' : ''}
@@ -2446,7 +2446,7 @@ function buildTrackerTabHtml(battle, tracker){
       <div class="vpVs">VS</div>
       <div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${totalVP(tracker.opponent)}</div></div>
     </div>
-    <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    <div class="turnBadge">Turn ${tracker.turn}</div>
     <button class="btn gold" id="primaryMissionBtn" style="margin-bottom:14px;">🎯 Primary Mission</button>
     ${buildSideTrackerHtml(tracker.my, 'my', 'My Army', tracker.turn)}
     ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`, tracker.turn)}
@@ -2765,7 +2765,12 @@ async function renderBattleTracker(battleId, tab){
         return;
       }
       await updateBattleTracker(battleId, t => { t.turn += 1; });
-      renderBattleTracker(battleId, 'tracker');
+      await renderBattleTracker(battleId, 'tracker');
+      // A long roster/secondaries list can leave the page scrolled well
+      // down when Finish Turn is tapped — jump back to the top so the new
+      // turn number and Primary Mission button are immediately visible
+      // instead of requiring a manual scroll up.
+      main.scrollTop = 0;
     };
   }
 
