@@ -154,6 +154,21 @@ function loadDetachmentsData(){
   return detachmentsDataPromise;
 }
 
+// A Detachment "card" saved into a collection folder or a battle roster is
+// a frozen snapshot taken whenever it was added — disposition was added to
+// that snapshot's shape after some users had already saved cards without
+// it, so an old stored card can be missing disposition even though the
+// live data (and a brand new lookup) has it. Patch it back in from the
+// current detachments-data.json by faction+name whenever a saved card is
+// about to be shown, instead of requiring the user to re-add it.
+async function withFreshDisposition(card){
+  if(!card || card.disposition) return card;
+  const data = await loadDetachmentsData();
+  const faction = data && data.factions && data.factions[normalizePointsName(card.faction || '')];
+  const fresh = faction && faction.detachments[normalizePointsName(card.displayName || '')];
+  return fresh && fresh.disposition ? Object.assign({}, card, { disposition: fresh.disposition }) : card;
+}
+
 function htmlToPlainText(html){
   return (html || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -1671,6 +1686,9 @@ async function renderChooseActiveDetachment(battleId){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
+  for(const u of [...battle.myUnits, ...battle.opponentUnits]){
+    if(u.isDetachment) u.card = await withFreshDisposition(u.card);
+  }
 
   const buildSideChoice = (units, team, label, activeId) => {
     const detachments = units.filter(u => u.isDetachment);
@@ -2486,7 +2504,8 @@ function buildDetachmentRulesHtml(card){
   `;
 }
 
-function renderDetachmentRulesView(card, onBack, backLabel){
+async function renderDetachmentRulesView(card, onBack, backLabel){
+  card = await withFreshDisposition(card);
   setStatus('', 'STANDBY');
   main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
