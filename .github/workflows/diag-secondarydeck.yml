@@ -10,31 +10,50 @@ jobs:
       - name: Fetch the mission-deck-2026-27 page
         run: |
           curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
-          echo "Bytes downloaded: $(wc -c < /tmp/page.html)"
-      - name: Check the Secondary Mission deck section bounds and the "Determine Mission"/"Score Secondary" rules text
+      - name: Search for "New Orders" and related discard/redraw stratagem text
         run: |
           python3 -c "
           html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
           import re
-          sm = re.search(r'id=\"Secondary-Mission-deck\"', html)
-          tw = re.search(r'id=\"Twist-deck\"', html)
-          print('Secondary-Mission-deck at', sm.start() if sm else None, 'Twist-deck at', tw.start() if tw else None)
-          if sm and tw:
-            print('span', tw.start() - sm.start())
-          # Dump the first ~4000 chars of the section, raw HTML, tags intact.
-          print('=== FIRST CHUNK ===')
-          print(html[sm.start():sm.start()+4000])
-          "
-      - name: Dump the Chapter Approved Battles rules text mentioning Secondary Mission draw/turn rules
-        run: |
-          python3 -c "
-          import re
-          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
           text = re.sub(r'<script.*?</script>', ' ', html, flags=re.S)
           text = re.sub(r'<style.*?</style>', ' ', text, flags=re.S)
           text = re.sub(r'<[^>]+>', '\n', text)
           text = re.sub(r'\n{2,}', '\n', text)
           text = '\n'.join(l.strip() for l in text.split('\n') if l.strip())
-          idx = text.find('Select Secondary Missions')
-          print(text[idx:idx+4000])
+          idxs = [m.start() for m in re.finditer(r'New Orders', text)]
+          print('New Orders occurrences:', idxs)
+          for i in idxs:
+            print('---')
+            print(text[max(0,i-200):i+600])
+          idxs2 = [m.start() for m in re.finditer(r'Command Reroll|Insane Bravery|Tactical Secondary', text)]
+          print()
+          print('Other core-stratagem-ish mentions:', len(idxs2))
+          "
+      - name: Check for a core/universal stratagems CSV on Wahapedia
+        run: |
+          BASE="https://wahapedia.ru/wh40k11ed"
+          for name in "Stratagems_core.csv" "Core_stratagems.csv" "Battle_tactic_stratagems.csv" "Universal_stratagems.csv"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" "$BASE/$name")
+            echo "$name -> $code"
+          done
+          echo "--- checking existing Stratagems.csv for non-detachment (core) rows ---"
+          curl -sL "$BASE/Stratagems.csv" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/strat.csv
+          head -1 /tmp/strat.csv
+          grep -i "new orders" /tmp/strat.csv || echo "no 'new orders' row found in Stratagems.csv"
+          wc -l /tmp/strat.csv
+      - name: Dump the full Secondary Mission deck section as plain text (all card names + full rules)
+        run: |
+          python3 -c "
+          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
+          import re
+          sm = html.find('id=\"Secondary-Mission-deck\"')
+          tw = html.find('id=\"Twist-deck\"')
+          section = html[sm:tw]
+          text = re.sub(r'<script.*?</script>', ' ', section, flags=re.S)
+          text = re.sub(r'<style.*?</style>', ' ', text, flags=re.S)
+          text = re.sub(r'<[^>]+>', '\n', text)
+          text = re.sub(r'\n{2,}', '\n', text)
+          text = '\n'.join(l.strip() for l in text.split('\n') if l.strip())
+          print('TOTAL CHARS:', len(text))
+          print(text[:6000])
           "
