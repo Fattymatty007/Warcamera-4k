@@ -1,0 +1,43 @@
+name: DIAG Mission Deck 2026-27
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try likely CSV names near the mission deck page
+        run: |
+          BASE="https://wahapedia.ru/wh40k11ed"
+          for name in "Missions.csv" "Mission_deck.csv" "Mission_deck_2026_27.csv" "Mission_deck_2026-27.csv" "Missions_2026_27.csv" "Mission_cards.csv" "Deployments.csv" "Battle_size.csv" "Layouts.csv" "Combat_missions.csv"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" "$BASE/$name")
+            echo "$name -> $code"
+          done
+      - name: Fetch the mission-deck-2026-27 page and look for csv/json references
+        run: |
+          curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
+          echo "Bytes downloaded: $(wc -c < /tmp/page.html)"
+          echo "--- csv/json references ---"
+          grep -oE '[A-Za-z_./-]+\.(csv|json)' /tmp/page.html | sort -u || true
+          echo "--- script src references ---"
+          grep -oE '<script[^>]*src="[^"]+"' /tmp/page.html | sort -u | head -40 || true
+      - name: Dump visible text content (stripped of tags) for a first look
+        run: |
+          python3 -c "
+          import re
+          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
+          text = re.sub(r'<script.*?</script>', ' ', html, flags=re.S)
+          text = re.sub(r'<style.*?</style>', ' ', text, flags=re.S)
+          text = re.sub(r'<[^>]+>', '\n', text)
+          text = re.sub(r'\n{2,}', '\n', text)
+          text = '\n'.join(l.strip() for l in text.split('\n') if l.strip())
+          print(len(text), 'chars of visible text')
+          print(text[:6000])
+          "
+      - name: Upload full page HTML as an artifact for closer inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-deck-page
+          path: /tmp/page.html
+          retention-days: 1
