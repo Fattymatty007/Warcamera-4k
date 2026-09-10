@@ -435,7 +435,7 @@ function renderCameraPrime(){
       Tap below, then choose <strong>Allow</strong> when your browser asks.
     </div>
     <button class="btn primary" id="enableCamBtn" style="margin-top:16px;">📷 Enable Camera Access</button>
-    <button class="btn ghost" id="cancelPrimeBtn" style="margin-top:10px;">← Cancel</button>
+    <button class="btn ghost" id="cancelPrimeBtn" data-nav-back style="margin-top:10px;">← Cancel</button>
   `;
   document.getElementById('enableCamBtn').onclick = async () => {
     renderCameraView();
@@ -455,7 +455,7 @@ function renderCameraView(){
       </div>
     </div>
     <div class="camControls">
-      <div class="smallCircle" id="camCancel">✕</div>
+      <div class="smallCircle" id="camCancel" data-nav-back>✕</div>
       <div class="shutter" id="camShutter"></div>
       <div class="smallCircle" id="camFlip">⟳</div>
     </div>
@@ -519,7 +519,7 @@ function renderCameraNotFound(){
       This device doesn't appear to have a usable camera. You can still search for a unit by name.
     </div>
     <button class="btn gold" id="manualBtnNF" style="margin-top:14px;">🔎 Search by Name</button>
-    <button class="btn ghost" id="homeBtnNF" style="margin-top:10px;">← Home</button>
+    <button class="btn ghost" id="homeBtnNF" data-nav-back style="margin-top:10px;">← Home</button>
   `;
   document.getElementById('manualBtnNF').onclick = renderManualSearch;
   document.getElementById('homeBtnNF').onclick = renderHome;
@@ -532,7 +532,7 @@ function renderCameraUnsupported(){
       This browser or environment doesn't support camera access. You can still search for a unit by name.
     </div>
     <button class="btn gold" id="manualBtnUnsup" style="margin-top:14px;">🔎 Search by Name</button>
-    <button class="btn ghost" id="homeBtnUnsup" style="margin-top:10px;">← Home</button>
+    <button class="btn ghost" id="homeBtnUnsup" data-nav-back style="margin-top:10px;">← Home</button>
   `;
   document.getElementById('manualBtnUnsup').onclick = renderManualSearch;
   document.getElementById('homeBtnUnsup').onclick = renderHome;
@@ -547,7 +547,7 @@ function renderCameraError(err){
     </div>
     <input type="text" id="manualInput2" placeholder="Type a unit name..." style="margin-top:14px;"/>
     <button class="btn gold" id="manualBtn2" style="margin-top:10px;">🔎 Look Up Datasheet</button>
-    <button class="btn ghost" id="backBtn" style="margin-top:10px;">← Back</button>
+    <button class="btn ghost" id="backBtn" data-nav-back style="margin-top:10px;">← Back</button>
   `;
   document.getElementById('manualBtn2').onclick = () => {
     const v = document.getElementById('manualInput2').value.trim();
@@ -575,7 +575,7 @@ function renderPasteListScreen(){
     <div class="noteBox">Paste a plain-text export from your army builder app below.</div>
     <textarea id="pasteListInput" placeholder="Please paste Text List here."></textarea>
     <button class="btn gold" id="parsePastedListBtn" style="margin-top:10px;">📋 Find Units in This List</button>
-    <button class="btn ghost" id="pasteListCancelBtn">← Cancel</button>
+    <button class="btn ghost" id="pasteListCancelBtn" data-nav-back>← Cancel</button>
   `;
   document.getElementById('parsePastedListBtn').onclick = () => {
     const text = document.getElementById('pasteListInput').value;
@@ -756,7 +756,7 @@ function renderArmyListParseError(message, rawText){
     </div>
     <button class="btn primary" id="saveTextListBtn" style="margin-top:14px;">📋 Save as "Army List" Anyway</button>
     <button class="btn gold" id="listErrRetryBtn">↺ Try Again</button>
-    <button class="btn ghost" id="listErrBackBtn">← Home</button>
+    <button class="btn ghost" id="listErrBackBtn" data-nav-back>← Home</button>
   `;
   document.getElementById('saveTextListBtn').onclick = async () => {
     await addTextListToCollection(rawText, 'Army List');
@@ -783,7 +783,7 @@ function renderArmyListConfirm(units, rawText, title, detachmentHints){
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${rows}
     <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Save to a New Folder</button>
-    <button class="btn ghost" id="cancelListImportBtn">✕ Cancel</button>
+    <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
@@ -798,7 +798,7 @@ function renderTextListSaved(label){
   main.innerHTML = `
     <div class="noteBox">Saved "${escapeHtml(label || 'Imported List')}" to My Collection as a text document.</div>
     <button class="btn primary" id="listSaveDoneBtn">📚 View My Collection</button>
-    <button class="btn ghost" id="listSaveHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="listSaveHomeBtn" data-nav-back>🏠 Home</button>
   `;
   document.getElementById('listSaveDoneBtn').onclick = renderCollectionList;
   document.getElementById('listSaveHomeBtn').onclick = renderHome;
@@ -954,7 +954,7 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
   main.innerHTML = `
     <div class="noteBox">Saved "${escapeHtml(finalName)}" to My Collection — ${datasheets.length} unique unit${datasheets.length===1?'':'s'}${dupeCount ? ' ('+dupeCount+' duplicate'+(dupeCount===1?'':'s')+' skipped — one reference page per unit is enough)' : ''} plus the full list text.${detachNote}${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="listImportDoneBtn">📚 View My Collection</button>
-    <button class="btn ghost" id="listImportHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="listImportHomeBtn" data-nav-back>🏠 Home</button>
   `;
   document.getElementById('listImportDoneBtn').onclick = renderCollectionList;
   document.getElementById('listImportHomeBtn').onclick = renderHome;
@@ -1153,7 +1153,7 @@ function renderManualSearch(){
   main.innerHTML = `
     <input type="text" id="manualInput3" placeholder="Type a unit name..." />
     <button class="btn gold" id="manualBtn4" style="margin-top:10px;">🔎 Look Up Datasheet</button>
-    <button class="btn ghost" id="homeBtn" style="margin-top:10px;">← Home</button>
+    <button class="btn ghost" id="homeBtn" data-nav-back style="margin-top:10px;">← Home</button>
   `;
   document.getElementById('manualBtn4').onclick = () => {
     const v = document.getElementById('manualInput3').value.trim();
@@ -1179,7 +1179,7 @@ async function renderApiKeySettings(){
     <button class="btn primary" id="saveKeyBtn" style="margin-top:10px;">✓ Save &amp; Use My Key</button>
     ${currentKey ? '<button class="btn ghost" id="clearKeyBtn">✕ Stop Using My Key</button>' : ''}
     <button class="btn ghost" id="getKeyBtn">🔗 Get a Free Key from Google AI Studio</button>
-    <button class="btn ghost" id="settingsHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="settingsHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   document.getElementById('saveKeyBtn').onclick = async () => {
@@ -1360,7 +1360,7 @@ async function renderSendToFolderPicker(itemLabel, verb, onPick, onCancel){
     ${folders.length ? folders.map((f, i) => `
       <button class="btn gold" data-send-folder-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">🗂 ${escapeHtml(f.folderName || 'Army List Units')}</button>
     `).join('') : '<div class="noteBox">No Army List folders yet — upload a list first to create one.</div>'}
-    <button class="btn ghost" id="sendToCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+    <button class="btn ghost" id="sendToCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   folders.forEach((f, i) => {
     document.querySelector(`[data-send-folder-idx="${i}"]`).onclick = () => onPick(f);
@@ -1411,7 +1411,7 @@ async function renderBattleList(){
   main.innerHTML = `
     ${battles.length ? '<div class="noteBox">Tap a battle to open it.</div>' + cards : emptyNote}
     <button class="btn primary" id="newBattleBtn">+ New Battle</button>
-    <button class="btn ghost" id="battlesHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="battlesHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   battles.forEach(b => {
@@ -1432,7 +1432,7 @@ function renderNewBattleForm(){
     <input type="text" id="opponentInput" placeholder="Opponent's name" />
     <input type="date" id="dateInput" value="${today}" style="margin-top:8px;" />
     <button class="btn primary" id="startBattleBtn" style="margin-top:12px;">⚔️ Start Battle</button>
-    <button class="btn ghost" id="cancelNewBattleBtn">✕ Cancel</button>
+    <button class="btn ghost" id="cancelNewBattleBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('startBattleBtn').onclick = async () => {
     const opponentInput = document.getElementById('opponentInput');
@@ -1487,6 +1487,7 @@ async function renderBattleDetail(battleId){
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
+    <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
   main.querySelectorAll('[data-unit]').forEach(card => {
@@ -1509,6 +1510,10 @@ async function renderBattleDetail(battleId){
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
   document.getElementById('deleteBattleBtn').onclick = () => renderDeleteBattleConfirm(battle);
   document.getElementById('battleDetailHomeBtn').onclick = renderHome;
+  // The visible footer button intentionally jumps straight Home (a
+  // deliberate shortcut) — the global "✕" instead steps back exactly one
+  // level, to the Battles list, via this hidden marker.
+  document.getElementById('battleDetailBackTarget').onclick = renderBattleList;
   if(document.getElementById('shareMyQrBtn')) document.getElementById('shareMyQrBtn').onclick = () => renderShareRosterQr(battleId, 'my');
   if(document.getElementById('shareOppQrBtn')) document.getElementById('shareOppQrBtn').onclick = () => renderShareRosterQr(battleId, 'opponent');
 }
@@ -1520,7 +1525,7 @@ function renderDeleteBattleConfirm(battle){
       This permanently deletes the battle vs ${escapeHtml(battle.opponent)} and all ${battle.myUnits.length + battle.opponentUnits.length} logged units. This can't be undone.
     </div>
     <button class="btn primary" id="confirmDeleteBattleBtn" style="margin-top:14px;">🗑 Yes, Delete It</button>
-    <button class="btn ghost" id="cancelDeleteBattleBtn">← Cancel</button>
+    <button class="btn ghost" id="cancelDeleteBattleBtn" data-nav-back>← Cancel</button>
   `;
   document.getElementById('confirmDeleteBattleBtn').onclick = async () => {
     await deleteBattle(battle.id);
@@ -1538,7 +1543,7 @@ async function renderBattleScanChoice(battleId){
     <div class="noteBox">Who is this scan for?</div>
     <button class="btn primary" id="forMeBtn">🙋 My Army</button>
     <button class="btn gold" id="forOpponentBtn">⚔️ ${escapeHtml(battle.opponent)}'s Army</button>
-    <button class="btn ghost" id="cancelScanChoiceBtn">← Cancel</button>
+    <button class="btn ghost" id="cancelScanChoiceBtn" data-nav-back>← Cancel</button>
   `;
   document.getElementById('forMeBtn').onclick = () => {
     currentBattleContext = { battleId, team:'my' };
@@ -1572,7 +1577,7 @@ async function renderBattleScanEntry(battleId, team){
     <button class="btn gold" id="battleManualBtn">🔎 Look Up Datasheet</button>
     <button class="btn ghost" id="battleFromCollectionBtn" style="margin-top:10px;">📚 Add From My Collection</button>
     <button class="btn ghost" id="battleImportQrBtn">🔳 Import Roster via QR</button>
-    <button class="btn ghost" id="battleScanCancelBtn" style="margin-top:10px;">← Back to Battle</button>
+    <button class="btn ghost" id="battleScanCancelBtn" data-nav-back style="margin-top:10px;">← Back to Battle</button>
   `;
   document.getElementById('battleScanBtn').onclick = openCamera;
   document.getElementById('battleUploadBtn').onclick = () => {
@@ -1643,7 +1648,7 @@ async function renderBattleCollectionPicker(battleId, team){
     <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units, folders, or lists to add — no rescanning needed.</div>
     ${list.length ? rows : emptyNote}
     ${list.length ? '<button class="btn primary" id="confirmCollAddBtn" style="margin-top:14px;">✓ Add Selected</button>' : ''}
-    <button class="btn ghost" id="collPickerBackBtn" style="margin-top:10px;">← Back</button>
+    <button class="btn ghost" id="collPickerBackBtn" data-nav-back style="margin-top:10px;">← Back</button>
   `;
 
   if(list.length){
@@ -1695,7 +1700,7 @@ async function renderShareRosterQr(battleId, team){
         <div class="errTitle">Couldn't Generate QR Code</div>
         ${escapeHtml(err.message || 'This roster may be too large for a single QR code.')}
       </div>
-      <button class="btn ghost" id="qrGenBackBtn" style="margin-top:14px;">← Back</button>
+      <button class="btn ghost" id="qrGenBackBtn" data-nav-back style="margin-top:14px;">← Back</button>
     `;
     document.getElementById('qrGenBackBtn').onclick = () => renderBattleDetail(battleId);
     return;
@@ -1706,7 +1711,7 @@ async function renderShareRosterQr(battleId, team){
     <div style="display:flex; justify-content:center; padding:16px 0;">
       <img src="${qrDataUrl}" alt="Roster QR code" style="width:100%; max-width:280px; border-radius:4px;"/>
     </div>
-    <button class="btn ghost" id="qrDoneBtn">← Back to Battle</button>
+    <button class="btn ghost" id="qrDoneBtn" data-nav-back>← Back to Battle</button>
   `;
   document.getElementById('qrDoneBtn').onclick = () => renderBattleDetail(battleId);
 }
@@ -1734,7 +1739,7 @@ async function renderImportQrScan(battleId, team){
         <div class="errTitle">Camera Not Available Here</div>
         QR import needs camera access, which isn't available in this browser/environment.
       </div>
-      <button class="btn ghost" id="qrScanBackBtn">← Back</button>
+      <button class="btn ghost" id="qrScanBackBtn" data-nav-back>← Back</button>
     `;
     document.getElementById('qrScanBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
     return;
@@ -1750,7 +1755,7 @@ async function renderImportQrScan(battleId, team){
       </div>
     </div>
     <canvas id="qrCanvas" style="display:none;"></canvas>
-    <button class="btn ghost" id="qrScanCancelBtn" style="margin-top:14px;">← Cancel</button>
+    <button class="btn ghost" id="qrScanCancelBtn" data-nav-back style="margin-top:14px;">← Cancel</button>
   `;
   document.getElementById('qrScanCancelBtn').onclick = () => { stopQrScan(); renderBattleScanEntry(battleId, team); };
 
@@ -1762,7 +1767,7 @@ async function renderImportQrScan(battleId, team){
         <div class="errTitle">Camera Access Failed</div>
         ${escapeHtml(err.message || 'Could not access the camera.')}
       </div>
-      <button class="btn ghost" id="qrScanBackBtn2" style="margin-top:14px;">← Back</button>
+      <button class="btn ghost" id="qrScanBackBtn2" data-nav-back style="margin-top:14px;">← Back</button>
     `;
     document.getElementById('qrScanBackBtn2').onclick = () => renderBattleScanEntry(battleId, team);
     return;
@@ -1804,7 +1809,7 @@ function handleScannedRosterPayload(battleId, team, raw){
         That QR code doesn't look like a WarCamera 4k roster export.
       </div>
       <button class="btn primary" id="qrRetryBtn" style="margin-top:14px;">↺ Try Again</button>
-      <button class="btn ghost" id="qrCancelBtn2">← Cancel</button>
+      <button class="btn ghost" id="qrCancelBtn2" data-nav-back>← Cancel</button>
     `;
     document.getElementById('qrRetryBtn').onclick = () => renderImportQrScan(battleId, team);
     document.getElementById('qrCancelBtn2').onclick = () => renderBattleScanEntry(battleId, team);
@@ -1830,7 +1835,7 @@ async function renderImportConfirm(battleId, team, units){
     <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}. Import into <strong>${escapeHtml(teamLabel)}</strong>? Each one gets freshly looked up, same as a name search.</div>
     ${cards}
     <button class="btn primary" id="confirmImportBtn" style="margin-top:14px;">✓ Import ${units.length} Unit${units.length===1?'':'s'}</button>
-    <button class="btn ghost" id="cancelImportBtn">✕ Cancel</button>
+    <button class="btn ghost" id="cancelImportBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('confirmImportBtn').onclick = () => runRosterImport(battleId, team, units);
   document.getElementById('cancelImportBtn').onclick = () => renderBattleScanEntry(battleId, team);
@@ -1857,7 +1862,7 @@ async function runRosterImport(battleId, team, units){
 function renderImportSummary(battleId, succeeded, failed){
   main.innerHTML = `
     <div class="noteBox">Imported ${succeeded} unit${succeeded===1?'':'s'} into the battle.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
-    <button class="btn primary" id="importDoneBtn">⚔️ View Battle</button>
+    <button class="btn primary" id="importDoneBtn" data-nav-back>⚔️ View Battle</button>
   `;
   document.getElementById('importDoneBtn').onclick = () => renderBattleDetail(battleId);
 }
@@ -1871,7 +1876,7 @@ function renderBattleUnitView(battle, unit){
   }
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn">← Back to Battle</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>← Back to Battle</button>`;
   document.getElementById('unitBackBtn').onclick = () => renderBattleDetail(battle.id);
 }
 
@@ -1918,7 +1923,7 @@ async function renderCollectionList(){
 
   main.innerHTML = `
     ${list.length ? '<div class="noteBox">Tap a saved unit, folder, list, or Detachment card to reopen it. Hold a unit or Detachment card to move it into an Army List folder.</div>' + cards : emptyNote}
-    <button class="btn ghost" id="collectionHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="collectionHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   list.forEach(u => {
@@ -1954,7 +1959,7 @@ function renderCollectionUnitView(unit){
   setStatus('', 'STANDBY');
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn">← Back to Collection</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn" data-nav-back>← Back to Collection</button>`;
   document.getElementById('collUnitBackBtn').onclick = renderCollectionList;
 }
 
@@ -1981,7 +1986,7 @@ function renderCollectionFolderView(entry){
     ${rows}
   `;
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="collFolderBackBtn">← Back to Collection</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="collFolderBackBtn" data-nav-back>← Back to Collection</button>`;
   entry.units.forEach((u, i) => {
     const card = main.querySelector(`.libCard[data-idx="${i}"]`);
     if(card) card.addEventListener('click', () => renderCollectionFolderUnitView(entry, u));
@@ -2048,7 +2053,7 @@ function renderDetachmentRulesView(card, onBack, backLabel){
   setStatus('', 'STANDBY');
   main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn">${escapeHtml(backLabel || '← Back')}</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn" data-nav-back>${escapeHtml(backLabel || '← Back')}</button>`;
   document.getElementById('detachRulesBackBtn').onclick = onBack;
 }
 
@@ -2078,7 +2083,7 @@ function renderDetachmentSearchResult(card, actionNote){
     }, () => renderDetachmentSearchResult(card));
   };
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="detachSearchBackBtn">← Home</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="detachSearchBackBtn" data-nav-back>← Home</button>`;
   document.getElementById('detachSearchBackBtn').onclick = renderHome;
 }
 
@@ -2087,7 +2092,7 @@ function renderDetachmentFactionPicker(query, matches){
   main.innerHTML = `
     <div class="noteBox">"${escapeHtml(query)}" matches more than one Detachment. Which one do you want?</div>
     ${matches.map((m, i) => `<button class="btn gold" data-detach-match-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(m.displayName || 'Detachment')} — ${escapeHtml(m.faction || 'Unknown Faction')}</button>`).join('')}
-    <button class="btn ghost" id="detachPickerCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+    <button class="btn ghost" id="detachPickerCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   matches.forEach((m, i) => {
     document.querySelector(`[data-detach-match-idx="${i}"]`).onclick = () => renderDetachmentSearchResult(m);
@@ -2099,7 +2104,7 @@ function renderCollectionFolderUnitView(entry, unit){
   setStatus('', 'STANDBY');
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn">← Back to Folder</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn" data-nav-back>← Back to Folder</button>`;
   document.getElementById('collFolderUnitBackBtn').onclick = () => renderCollectionFolderView(entry);
 }
 
@@ -2113,7 +2118,7 @@ function renderTextListView(entry, onBack, backLabel){
     <div class="sheet"><div class="section" style="white-space:pre-wrap; line-height:1.5; font-size:12.5px;">${escapeHtml(entry.rawText || '')}</div></div>
   `;
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="textListBackBtn">${escapeHtml(backLabel)}</button>`;
+  footer.innerHTML = `<button class="btn ghost" id="textListBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>`;
   document.getElementById('textListBackBtn').onclick = onBack;
 }
 
@@ -2138,7 +2143,7 @@ async function renderCustomLibrary(){
   main.innerHTML = `
     ${list.length ? '<div class="noteBox">Tap a custom model to jump straight to its datasheet.</div>' + cards : emptyNote}
     <button class="btn primary" id="addCustomBtn">+ Add Custom Model</button>
-    <button class="btn ghost" id="customHomeBtn">🏠 Home</button>
+    <button class="btn ghost" id="customHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   list.forEach(m => {
@@ -2169,7 +2174,7 @@ function renderAddCustomChooser(){
     <button class="btn primary" id="customCamBtn">📷 Take Photo</button>
     <button class="btn gold" id="customUploadBtn">🖼 Upload Photo</button>
     <input type="file" id="customFileInput" accept="image/*" style="display:none;" />
-    <button class="btn ghost" id="customCancelBtn">← Cancel</button>
+    <button class="btn ghost" id="customCancelBtn" data-nav-back>← Cancel</button>
   `;
   document.getElementById('customCamBtn').onclick = () => {
     onPhotoReady = handleCustomPhotoCaptured;
@@ -2204,7 +2209,7 @@ function renderCustomModelForm(thumb){
     <input type="text" id="customUnitInput" placeholder="Unit name, e.g. Captain in Gravis Armour" style="margin-top:8px;"/>
     <input type="text" id="customFactionInput" placeholder="Faction (optional)" style="margin-top:8px;"/>
     <button class="btn primary" id="saveCustomBtn" style="margin-top:12px;">✓ Save Custom Model</button>
-    <button class="btn ghost" id="cancelCustomFormBtn">✕ Cancel</button>
+    <button class="btn ghost" id="cancelCustomFormBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('saveCustomBtn').onclick = async () => {
     const unitInput = document.getElementById('customUnitInput');
@@ -2352,7 +2357,7 @@ function renderFactionPicker(unitName, variants, mode){
   main.innerHTML = `
     <div class="noteBox">"${escapeHtml(unitName)}" has its own datasheet in more than one army. Which one do you want?</div>
     ${variants.map((v, i) => `<button class="btn gold" data-faction-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(v.faction || 'Unknown Faction')}</button>`).join('')}
-    <button class="btn ghost" id="factionPickerCancelBtn" style="margin-top:6px;">✕ Cancel</button>
+    <button class="btn ghost" id="factionPickerCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   variants.forEach((v, i) => {
     document.querySelector(`[data-faction-idx="${i}"]`).onclick = () => fetchDatasheet(v.displayName || unitName, v.faction, mode);
@@ -2368,7 +2373,7 @@ function renderLookupError(err, unitName, mode){
       Couldn't retrieve a confirmed datasheet for "${escapeHtml(unitName)}" (${escapeHtml(err.message||'unknown error')}). Check the spelling, or it may not be a current unit.
     </div>
     <button class="btn primary" id="retryBtn2" style="margin-top:14px;">↺ Try Again</button>
-    <button class="btn ghost" id="homeBtn2" style="margin-top:10px;">← Home</button>
+    <button class="btn ghost" id="homeBtn2" data-nav-back style="margin-top:10px;">← Home</button>
   `;
   document.getElementById('retryBtn2').onclick = () => fetchDatasheet(unitName, '', mode);
   document.getElementById('homeBtn2').onclick = renderHome;
@@ -2392,7 +2397,7 @@ function renderConfirm(d){
     <button class="btn primary" id="confirmYes" style="margin-top:6px;">✓ Correct — Show Full Datasheet</button>
     <button class="btn ghost" id="confirmNo">✕ Not a Match — Search by Name</button>
     <button class="btn ghost" id="confirmRescan">↺ Rescan</button>
-    <button class="btn ghost" id="confirmHome">🏠 Home</button>
+    <button class="btn ghost" id="confirmHome" data-nav-back>🏠 Home</button>
   `;
   document.getElementById('confirmYes').onclick = () => fetchDatasheet(d.unit_name, d.faction, 'direct');
   document.getElementById('confirmNo').onclick = renderManualSearch;
@@ -2479,7 +2484,7 @@ function renderDatasheetSheetView(d, battleNote, actionNote){
     footer.innerHTML = `
       <button class="btn ghost" id="homeFromSheet">🏠 Home</button>
       <button class="btn gold" id="scanMoreForBattle">📷 Scan Another</button>
-      <button class="btn primary" id="backToBattleBtn">⚔️ Battle</button>
+      <button class="btn primary" id="backToBattleBtn" data-nav-back>⚔️ Battle</button>
     `;
     document.getElementById('homeFromSheet').onclick = renderHome;
     document.getElementById('scanMoreForBattle').onclick = () => renderBattleScanEntry(ctx.battleId, ctx.team);
@@ -2489,7 +2494,7 @@ function renderDatasheetSheetView(d, battleNote, actionNote){
     };
   } else {
     footer.innerHTML = `
-      <button class="btn ghost" id="homeFromSheet">🏠 Home</button>
+      <button class="btn ghost" id="homeFromSheet" data-nav-back>🏠 Home</button>
       <button class="btn ghost" id="scanAgain">📷 Rescan</button>
       <button class="btn gold" id="searchAnother">🔎 Other</button>
     `;
@@ -2557,14 +2562,33 @@ if('serviceWorker' in navigator){
 }
 
 // Global "✕" in the header — same corner on every screen since the header
-// itself is static markup (only #main/#footer get re-rendered per screen)
-// — always jumps straight back to Home. stopCamera() is a no-op when
-// nothing's active, so it's safe to call unconditionally rather than
-// tracking which screens have a live camera stream open.
-document.getElementById('globalCloseBtn').onclick = () => {
+// itself is static markup (only #main/#footer get re-rendered per screen).
+// Steps back exactly one screen rather than jumping all the way Home: each
+// screen marks its own correct "back" action with a data-nav-back
+// attribute (almost always the same button/onclick a visible Back/Cancel/
+// Home control on that screen already uses — see the many small edits
+// throughout this file — so this reuses logic that's already correct per
+// screen instead of tracking a separate navigation history). stopCamera()
+// is a no-op when nothing's active, so it's safe to call unconditionally
+// here too, on top of whatever the matched back target does itself.
+const globalCloseBtn = document.getElementById('globalCloseBtn');
+globalCloseBtn.onclick = () => {
   stopCamera();
-  renderHome();
+  const backTarget = document.querySelector('[data-nav-back]');
+  if(backTarget) backTarget.click();
+  else renderHome(); // safety net for the rare screen with no back target marked
 };
+
+// Home has nowhere further back to go, so the close button has nothing to
+// do there — hidden rather than shown-but-inert. #scanBtn only ever exists
+// on Home, so checking for it after every #main repaint (instead of
+// threading visibility into all 44 render functions) is enough to track
+// this with a single small observer.
+function syncGlobalCloseBtnVisibility(){
+  globalCloseBtn.style.display = document.getElementById('scanBtn') ? 'none' : 'flex';
+}
+new MutationObserver(syncGlobalCloseBtnVisibility).observe(main, { childList: true });
 
 // init
 renderHome();
+syncGlobalCloseBtnVisibility(); // observer callbacks are async — set the correct initial state synchronously too, so it's never visible even for a frame on first load
