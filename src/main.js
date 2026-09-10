@@ -1286,6 +1286,20 @@ async function updateBattleTracker(battleId, mutateFn){
   return battle;
 }
 
+// Which Detachment card (by its roster-entry id) is the active one for a
+// side that has more than one — see needsDispositionChoice/
+// resolveActiveDetachment. Lives directly on the battle, same as
+// opponent/date, since it's a property of that battle's roster rather
+// than in-game tracker state.
+async function updateBattleActiveDetachment(battleId, team, detachmentUnitId){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return;
+  if(team === 'my') battle.myActiveDetachmentId = detachmentUnitId;
+  else battle.opponentActiveDetachmentId = detachmentUnitId;
+  await saveBattlesList(list);
+}
+
 // ---------- COLLECTION (saved units, reusable across battles) ----------
 // A datasheet saved here is a standalone copy, same pattern as a battle
 // roster entry — reopening or adding it to a battle never needs another
@@ -1485,9 +1499,32 @@ function renderNewBattleForm(){
 }
 
 // ---------- SCREEN: BATTLE DETAIL ----------
+// A roster with more than one Detachment card needs the player to pick
+// which one's Deposition actually applies for that battle (real 40k rule
+// — an army built from two Detachments still only fields one Deposition).
+// With 0 or 1 Detachment there's nothing ambiguous, so no choice is ever
+// needed. activeId is ignored/moot in that case.
+function needsDispositionChoice(units, activeId){
+  const detachments = units.filter(u => u.isDetachment);
+  if(detachments.length <= 1) return false;
+  return !activeId || !detachments.some(d => d.id === activeId);
+}
+// The Detachment actually in effect: the only one if there's just one, the
+// chosen one if there's a valid stored choice among several, otherwise
+// null (ambiguous, unresolved).
+function resolveActiveDetachment(units, activeId){
+  const detachments = units.filter(u => u.isDetachment);
+  if(detachments.length === 0) return null;
+  if(detachments.length === 1) return detachments[0];
+  return detachments.find(d => d.id === activeId) || null;
+}
+
 // Shared by renderBattleDetail and the Battle Tracker's My Army/Opponent's
 // Army tabs — same roster cards, same remove button, in both places.
-function buildTeamHtml(units, team){
+// activeDetachmentId marks which Detachment card (if this side has more
+// than one) is the chosen one, so it's visibly distinguished on the card
+// itself rather than the choice being invisible once made.
+function buildTeamHtml(units, team, activeDetachmentId){
   if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
   // The army list's own text card always reads first, regardless of when
   // it was added relative to the units, with Detachment Rules cards
@@ -1496,6 +1533,7 @@ function buildTeamHtml(units, team){
   // (in original order otherwise).
   const rank = (u) => u.isTextList ? 0 : u.isDetachment ? 1 : 2;
   const ordered = [...units].sort((a, b) => rank(a) - rank(b));
+  const multipleDetachments = units.filter(u => u.isDetachment).length > 1;
   return ordered.map(u => {
     if(u.isTextList) return `
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
@@ -1504,13 +1542,16 @@ function buildTeamHtml(units, team){
         <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
       </div>
     `;
-    if(u.isDetachment) return `
+    if(u.isDetachment){
+      const activeBadge = !multipleDetachments ? '' : u.id === activeDetachmentId ? ' ✓ Active' : ' (not active)';
+      return `
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
-        <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules</div>
+        <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules${activeBadge}</div>
         <div class="libMeta">${escapeHtml(u.card.faction||'')} · Detachment Rules</div>
         <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
       </div>
     `;
+    }
     return `
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
         <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
@@ -1569,15 +1610,22 @@ async function renderBattleDetail(battleId){
     : tracker.started ? '⚔️ Continue Battle'
     : '⚔️ Start Battle';
 
+  const needsChoice = needsDispositionChoice(battle.myUnits, battle.myActiveDetachmentId) || needsDispositionChoice(battle.opponentUnits, battle.opponentActiveDetachmentId);
+  // Once there's more than one Detachment on a side, the button stays —
+  // relabeled once resolved — so a wrong pick can still be corrected
+  // later, not just made once and then hidden.
+  const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
+
   main.innerHTML = `
     <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
     <div class="sectionTitle" style="padding:0 2px;">My Army (${battle.myUnits.length})</div>
-    ${buildTeamHtml(battle.myUnits, 'my')}
+    ${buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)}
     ${battle.myUnits.length ? '<button class="btn ghost" id="shareMyQrBtn" style="margin-top:6px;">📤 Share My Army as QR</button>' : ''}
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
-    ${buildTeamHtml(battle.opponentUnits, 'opponent')}
+    ${buildTeamHtml(battle.opponentUnits, 'opponent', battle.opponentActiveDetachmentId)}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
+    ${hasMultipleDetachments ? `<button class="btn gold" id="chooseDetachBtn" style="margin-top:6px;">${needsChoice ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>` : ''}
     <button class="btn gold" id="startBattleTrackerBtn">${battleBtnLabel}</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn">🏠 Home</button>
@@ -1588,7 +1636,16 @@ async function renderBattleDetail(battleId){
   wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
+  if(document.getElementById('chooseDetachBtn')) document.getElementById('chooseDetachBtn').onclick = () => renderChooseActiveDetachment(battleId);
   document.getElementById('startBattleTrackerBtn').onclick = async () => {
+    // A side with more than one Detachment needs the player to pick which
+    // one's Deposition actually applies before play begins — a real 40k
+    // rule, not something to silently guess at.
+    const fresh = await getBattleById(battleId);
+    if(needsDispositionChoice(fresh.myUnits, fresh.myActiveDetachmentId) || needsDispositionChoice(fresh.opponentUnits, fresh.opponentActiveDetachmentId)){
+      renderChooseActiveDetachment(battleId);
+      return;
+    }
     if(!tracker.started){
       await updateBattleTracker(battleId, t => { t.started = true; });
     }
@@ -1602,6 +1659,60 @@ async function renderBattleDetail(battleId){
   document.getElementById('battleDetailBackTarget').onclick = renderBattleList;
   if(document.getElementById('shareMyQrBtn')) document.getElementById('shareMyQrBtn').onclick = () => renderShareRosterQr(battleId, 'my');
   if(document.getElementById('shareOppQrBtn')) document.getElementById('shareOppQrBtn').onclick = () => renderShareRosterQr(battleId, 'opponent');
+}
+
+// Shown either voluntarily (the "⚠️ Choose Active Detachment" button on
+// Battle Detail, whenever a side has more than one) or forced on tapping
+// Start Battle if it's still unresolved — either way, tapping an option
+// picks it immediately and re-renders this same screen so the choice is
+// visible right away; Continue only actually proceeds once every side
+// that needs one has a valid choice made.
+async function renderChooseActiveDetachment(battleId){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+
+  const buildSideChoice = (units, team, label, activeId) => {
+    const detachments = units.filter(u => u.isDetachment);
+    if(detachments.length <= 1) return '';
+    return `
+      <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(label)}</div>
+      ${detachments.map(d => `
+        <button class="btn ${d.id === activeId ? 'primary' : 'ghost'}" data-choose-detach="${d.id}" data-choose-team="${team}" style="display:block; width:100%; text-align:left; margin-bottom:8px;">
+          ${d.id === activeId ? '✓ ' : ''}${escapeHtml(d.card.displayName || 'Detachment')} — ${escapeHtml(d.card.disposition || 'No Deposition')}
+        </button>
+      `).join('')}
+    `;
+  };
+
+  const myHtml = buildSideChoice(battle.myUnits, 'my', 'My Army', battle.myActiveDetachmentId);
+  const oppHtml = buildSideChoice(battle.opponentUnits, 'opponent', `${battle.opponent}'s Army`, battle.opponentActiveDetachmentId);
+
+  main.innerHTML = `
+    <div class="noteBox">More than one Detachment was found. An army only fields one Deposition at a time — pick which Detachment's applies for this battle.</div>
+    ${myHtml}
+    ${oppHtml}
+    <button class="btn primary" id="confirmDetachChoiceBtn" style="margin-top:14px;">✓ Continue</button>
+    <button class="btn ghost" id="cancelDetachChoiceBtn" data-nav-back>← Back to Battle</button>
+  `;
+
+  main.querySelectorAll('[data-choose-detach]').forEach(btn => {
+    btn.onclick = async () => {
+      await updateBattleActiveDetachment(battleId, btn.getAttribute('data-choose-team'), btn.getAttribute('data-choose-detach'));
+      renderChooseActiveDetachment(battleId);
+    };
+  });
+
+  document.getElementById('confirmDetachChoiceBtn').onclick = async () => {
+    const fresh = await getBattleById(battleId);
+    const stillNeeded = needsDispositionChoice(fresh.myUnits, fresh.myActiveDetachmentId) || needsDispositionChoice(fresh.opponentUnits, fresh.opponentActiveDetachmentId);
+    if(stillNeeded){
+      main.insertAdjacentHTML('afterbegin', '<div class="noteBox" style="border-color:var(--blood-bright); color:var(--parchment);">Pick one Detachment for each army listed above before continuing.</div>');
+      return;
+    }
+    renderBattleDetail(battleId);
+  };
+  document.getElementById('cancelDetachChoiceBtn').onclick = () => renderBattleDetail(battleId);
 }
 
 function renderDeleteBattleConfirm(battle){
@@ -2073,8 +2184,8 @@ async function renderBattleTracker(battleId, tab){
   if(!battle){ renderBattleList(); return; }
   const tracker = ensureTracker(battle);
 
-  const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my')
-    : tab === 'opponent' ? buildTeamHtml(battle.opponentUnits, 'opponent')
+  const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)
+    : tab === 'opponent' ? buildTeamHtml(battle.opponentUnits, 'opponent', battle.opponentActiveDetachmentId)
     : buildTrackerTabHtml(battle, tracker);
   const showAddUnits = (tab === 'my' || tab === 'opponent') && !tracker.finished;
 
