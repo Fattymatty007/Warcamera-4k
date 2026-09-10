@@ -31,3 +31,18 @@ jobs:
       - name: Try the site search for "primary mission"
         run: |
           curl -s -A "Mozilla/5.0 (compatible; warcamera-4k-diag/1.0)" "https://wahapedia.ru/wh40k11ed/" | grep -oiE 'href="[^"]*mission[^"]*"' | sort -u
+
+      - name: Dump the Pariah Nexus mission page around "Determine Mission"
+        run: |
+          UA="Mozilla/5.0 (compatible; warcamera-4k-diag/1.0)"
+          curl -s -A "$UA" "https://wahapedia.ru/wh40k11ed/the-rules/pariah-nexus/" -o /tmp/pn.html
+          wc -c /tmp/pn.html
+          echo "--- raw snippet around Determine-Mission (2000 chars after) ---"
+          python3 -c "
+data = open('/tmp/pn.html', encoding='utf-8', errors='replace').read()
+idx = data.find('Determine-Mission')
+print(data[idx-200:idx+3000] if idx != -1 else 'NOT FOUND')
+"
+          echo ""
+          echo "--- all table row / list-item-ish fragments mentioning mission-y words ---"
+          grep -oiE '<(li|td|div)[^>]*>[^<]{3,60}</(li|td|div)>' /tmp/pn.html | grep -iE 'mission|purge|scorched|ritual|hold|storm|nexus|terraform|scour|linchpin|pariah' | sort -u | head -60
