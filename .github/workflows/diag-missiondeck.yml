@@ -7,22 +7,31 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch the mission-deck-2026-27 page
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the fetch-missions parser
+        run: node scripts/fetch-missions.mjs
+      - name: Inspect the resulting data
         run: |
-          curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
-          echo "Bytes downloaded: $(wc -c < /tmp/page.html)"
-      - name: Locate the real Force Disposition Cards section and dump raw HTML
-        run: |
-          python3 -c "
-          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
-          import re
-          # The section anchor follows the same id pattern as the other
-          # headings we already saw (id=\"FAQ\", id=\"Books\"). Find it directly.
-          pm = re.search(r'id=\"Primary-Mission-deck\"', html)
-          m = re.search(r'BOOBY TRAP', html[pm.start():])
-          real_pos = pm.start() + m.start()
-          print('anchor match at', real_pos)
-          start = html.rfind('cgCard_pad', pm.start(), real_pos)
-          chunk = html[start:start+3500]
-          print(chunk)
+          node -e "
+          const d = require('./public/missions-data.json');
+          console.log('Total missions:', d.missions.length);
+          console.log('Dispositions:', d.dispositions);
+          console.log();
+          console.log('=== Sample: Purge the Foe vs Take and Hold (expect Unstoppable Force) ===');
+          let m = d.missions.find(x => x.playerDisposition === 'Purge the Foe' && x.opponentDisposition === 'Take and Hold');
+          console.log(JSON.stringify(m, null, 2));
+          console.log();
+          console.log('=== Sample: Take and Hold vs Purge the Foe (expect Immovable Object) ===');
+          m = d.missions.find(x => x.playerDisposition === 'Take and Hold' && x.opponentDisposition === 'Purge the Foe');
+          console.log(JSON.stringify(m, null, 2));
+          console.log();
+          console.log('=== Sample with an Objective Action: Disruption vs Take and Hold (expect Death Trap + Booby Trap action) ===');
+          m = d.missions.find(x => x.playerDisposition === 'Disruption' && x.opponentDisposition === 'Take and Hold');
+          console.log(JSON.stringify(m, null, 2));
+          console.log();
+          console.log('=== All mission names by (player, opponent) ===');
+          for (const x of d.missions) console.log(x.playerDisposition, 'vs', x.opponentDisposition, '->', x.displayName);
           "
