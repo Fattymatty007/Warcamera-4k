@@ -2598,30 +2598,44 @@ function isOnHome(){ return !!document.getElementById('scanBtn'); }
 //
 // An earlier version of this pushed a fresh entry reactively from inside
 // the popstate handler itself (immediately re-arming a single "cushion"
-// entry on every back press). That worked in every scripted test here,
-// but real phones reportedly still got kicked out of the app on the very
-// first back press from some screens (reported for My Collection) — most
-// likely a real-device race between the OS's own back gesture already
-// deciding to exit and our handler's pushState landing too late to
-// matter, something a synchronous, deterministic test harness like
-// Playwright's page.goBack() would never surface. Pushing proactively
-// here instead — during ordinary forward navigation, with no gesture-
-// timing pressure at all — avoids that race entirely: by the time any
-// back press can happen, the matching history entry has been sitting
-// there for as long as the screen has been on screen.
+// entry on every back press). Real phones reportedly still got kicked out
+// of the app after a couple of ordinary back presses, so it moved to
+// pushing proactively during forward navigation instead — but that
+// version pushed on *every* non-Home #main repaint unconditionally,
+// including every renderLoading() spinner (most screens show one before
+// their real content — see e.g. renderCollectionList), so a single
+// screen transition often pushed twice, and normal browsing before ever
+// touching the back button could rack up a lot of pushState calls.
+// Chrome throttles History API calls past 100 within 10 seconds and just
+// silently ignores the rest past that point — no error, no warning, the
+// entry simply never gets added — which fits exactly what got reported:
+// back button working correctly at first, then eventually exiting the
+// app outright with no code change in between. Two fixes:
 //
-// suppressHistoryPush prevents the *reverse* problem: goBackOneScreen()
-// changes #main just like forward navigation does, and this same
-// observer fires for that repaint too — without the flag, every back
-// press would immediately re-push a forward entry, permanently undoing
-// itself. It's true only for the duration of one popstate-triggered
-// back navigation.
+// 1. Only push for a repaint that actually has its own data-nav-back
+//    target — a loading spinner never does, so this skips it entirely
+//    instead of giving it a throwaway entry, roughly halving push volume
+//    across the whole app.
+// 2. suppressHistoryPush now clears on a macrotask (setTimeout), not a
+//    microtask (Promise.resolve().then(...)). goBackOneScreen() can land
+//    on a screen whose render function is itself async and shows a
+//    loading spinner before its real content — that real-content repaint
+//    only happens after an extra await hop, which a microtask-based
+//    reset does NOT wait for: it fired the flag back to false in between
+//    the spinner repaint (correctly suppressed) and the real-content
+//    repaint (wrongly un-suppressed by then), so going back into exactly
+//    this kind of screen — My Collection among them — silently pushed a
+//    phantom forward entry on every single back press, compounding the
+//    same over-pushing problem from the *other* direction. A macrotask
+//    always runs after the full microtask queue (and everything chained
+//    off it, however many awaits deep) has drained.
 let suppressHistoryPush = false;
 function syncMainObserverEffects(){
-  globalCloseBtn.style.display = isOnHome() ? 'none' : 'flex';
-  if(!suppressHistoryPush && !isOnHome()){
-    history.pushState({ app: true }, '');
-  }
+  const onHome = isOnHome();
+  globalCloseBtn.style.display = onHome ? 'none' : 'flex';
+  if(suppressHistoryPush || onHome) return;
+  if(!document.querySelector('[data-nav-back]')) return; // transient screen (loading spinner, mainly) — nothing to anchor a history entry to
+  history.pushState({ app: true }, '');
 }
 new MutationObserver(syncMainObserverEffects).observe(main, { childList: true });
 
@@ -2635,9 +2649,7 @@ window.addEventListener('popstate', () => {
   if(isOnHome()) return;
   suppressHistoryPush = true;
   goBackOneScreen();
-  // The MutationObserver callback above runs as a microtask, always
-  // before this next one queues — safe to clear the flag right after.
-  Promise.resolve().then(() => { suppressHistoryPush = false; });
+  setTimeout(() => { suppressHistoryPush = false; }, 50);
 });
 
 // init
