@@ -1440,9 +1440,108 @@ function ensureTracker(battle){
   return battle.tracker;
 }
 
+// Achieved secondaries are discarded, not left ticked in place (see
+// achieveSecondaryCard) — the VP they're worth lives in completedSecondaries
+// from that point on, not on the active card anymore.
 function totalVP(side){
-  const secondaryVP = (side.secondaries || []).reduce((sum, s) => sum + (s.scored ? (s.points || 0) : 0), 0);
+  const secondaryVP = (side.completedSecondaries || []).reduce((sum, s) => sum + (s.vp || 0), 0);
   return (side.primaryVP || 0) + secondaryVP;
+}
+
+function normalizeMissionKey(name){
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+let secondaryMissionsDataPromise = null;
+function loadSecondaryMissionsData(){
+  if(!secondaryMissionsDataPromise){
+    secondaryMissionsDataPromise = fetch('/secondary-missions-data.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return secondaryMissionsDataPromise;
+}
+
+function shuffled(arr){
+  const a = arr.slice();
+  for(let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Lazily backfills the draw-deck fields onto a tracker side — battles
+// started before this feature existed have a side with none of them yet —
+// and builds its shuffled deck the first time it's needed, excluding
+// whatever's already active/completed/discarded so re-running this on an
+// already-playing side is a safe no-op.
+function ensureSecondaryDeck(side, allMissionKeys){
+  if(!side.secondaries) side.secondaries = [];
+  if(!side.completedSecondaries) side.completedSecondaries = [];
+  if(!side.secondaryDiscardKeys) side.secondaryDiscardKeys = [];
+  if(!side.secondaryDeckKeys){
+    const inUse = new Set([
+      ...side.secondaries.map(s => s.key),
+      ...side.completedSecondaries.map(s => s.key),
+      ...side.secondaryDiscardKeys,
+    ]);
+    side.secondaryDeckKeys = shuffled(allMissionKeys.filter(k => !inUse.has(k)));
+  }
+  if(side.secondaryLastDrawnTurn === undefined) side.secondaryLastDrawnTurn = 0;
+  if(side.usedNewOrders === undefined) side.usedNewOrders = false;
+}
+
+// Draws one card, reshuffling the discard pile back into the deck first if
+// it's run dry — same as a real card deck. With only 18 Secondary Missions
+// total and up to 5 rounds of 2-a-turn draws plus New Orders/CP discards,
+// running out during a long battle is the expected case, not an edge one.
+// Returns null (never throws) if every mission is already active or
+// completed on this side — nothing left to draw, not a bug.
+function drawSecondaryCard(side, missionsData){
+  if(side.secondaryDeckKeys.length === 0){
+    if(side.secondaryDiscardKeys.length === 0) return null;
+    side.secondaryDeckKeys = shuffled(side.secondaryDiscardKeys);
+    side.secondaryDiscardKeys = [];
+  }
+  const key = side.secondaryDeckKeys.pop();
+  const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
+  if(!mission) return null;
+  const card = {
+    id: uid('sec_'),
+    key,
+    displayName: mission.displayName,
+    flavor: mission.flavor,
+    intro: mission.intro,
+    scoring: mission.scoring,
+    action: mission.action,
+  };
+  side.secondaries.push(card);
+  return card;
+}
+
+// Moves an active card to the discard pile (New Orders, the CP discard, or
+// the once-per-draw WHEN DRAWN choice some cards offer) — available to be
+// reshuffled back into the deck once it runs dry, same as a real discard
+// pile, never permanently gone.
+function discardSecondaryCard(side, secId){
+  const card = (side.secondaries || []).find(s => s.id === secId);
+  if(!card) return null;
+  side.secondaries = side.secondaries.filter(s => s.id !== secId);
+  side.secondaryDiscardKeys.push(card.key);
+  return card;
+}
+
+// Moves an active card to the completed pile once its VP is banked — it's
+// achieved, out of play for the rest of the battle (real rule: achieving a
+// Tactical Secondary Mission discards it), so it comes off the active list
+// entirely rather than staying there ticked.
+function achieveSecondaryCard(side, secId, vp, turn){
+  const card = (side.secondaries || []).find(s => s.id === secId);
+  if(!card) return null;
+  side.secondaries = side.secondaries.filter(s => s.id !== secId);
+  side.completedSecondaries.push({ id: card.id, key: card.key, displayName: card.displayName, vp, turn });
+  return card;
 }
 
 // Shared by every tracker interaction (CP +/-, VP edit, add/toggle/remove
@@ -2290,18 +2389,23 @@ function renderBattleUnitView(battle, unit, onBack, backLabel){
 // ---------- SCREEN: BATTLE TRACKER (live in-game VP/CP/secondaries/turn) ----------
 const TOTAL_TURNS = 5;
 
-function buildSideTrackerHtml(side, team, label){
+function buildSideTrackerHtml(side, team, label, turn){
   const secondaries = side.secondaries || [];
   const secHtml = secondaries.map(s => `
-    <div class="secItem">
-      <label class="secLabel">
-        <input type="checkbox" class="secScoredCheck" data-sec-team="${team}" data-sec-id="${s.id}" ${s.scored ? 'checked' : ''}/>
-        <span class="secName${s.scored ? ' scored' : ''}">${escapeHtml(s.name)}</span>
-        <span class="secPts">${s.points || 0} pts</span>
-      </label>
-      <button class="secRemoveBtn" data-sec-remove-team="${team}" data-sec-remove-id="${s.id}" aria-label="Remove secondary">✕</button>
+    <div class="secItem" data-sec-id="${s.id}" data-sec-team="${team}">
+      <span class="secName">📋 ${escapeHtml(s.displayName)}</span>
+      <span class="secMenuHint">⋮</span>
     </div>
-  `).join('') || `<div class="loadSub">No secondaries added yet.</div>`;
+  `).join('') || `<div class="loadSub">No active secondaries — draw 2 to start.</div>`;
+
+  const completed = side.completedSecondaries || [];
+  const completedHtml = completed.length ? `
+    <div class="secListLabel" style="margin-top:10px;">Achieved</div>
+    ${completed.map(c => `<div class="secItem secItemDone"><span class="secName scored">✓ ${escapeHtml(c.displayName)}</span><span class="secPts">${c.vp || 0} VP</span></div>`).join('')}
+  ` : '';
+
+  const alreadyDrawn = side.secondaryLastDrawnTurn === turn;
+  const deckExhausted = (side.secondaryDeckKeys || []).length === 0 && (side.secondaryDiscardKeys || []).length === 0;
 
   return `
     <div class="trackerSide">
@@ -2316,13 +2420,10 @@ function buildSideTrackerHtml(side, team, label){
         <span class="counterLabel">Primary VP</span>
         <input type="number" class="vpInput" data-vp-team="${team}" min="0" value="${side.primaryVP}"/>
       </div>
-      <div class="secListLabel">Secondaries (tap to mark scored)</div>
+      <div class="secListLabel">Secondary Missions (tap to view, hold for options)</div>
       ${secHtml}
-      <div class="secAddRow">
-        <input type="text" class="secNameInput" data-sec-name-team="${team}" placeholder="Secondary name"/>
-        <input type="number" class="secPtsInput" data-sec-pts-team="${team}" placeholder="Pts" min="0"/>
-        <button class="btn gold" data-sec-add-team="${team}">+ Add</button>
-      </div>
+      ${completedHtml}
+      <button class="btn ${alreadyDrawn ? 'ghost' : 'gold'}" data-draw-team="${team}" style="margin-top:10px;" ${alreadyDrawn || deckExhausted ? 'disabled' : ''}>${alreadyDrawn ? '✓ Drawn This Turn' : deckExhausted ? 'No Missions Left to Draw' : '🎲 Draw 2 Secondary Missions'}</button>
     </div>
   `;
 }
@@ -2347,24 +2448,151 @@ function buildTrackerTabHtml(battle, tracker){
     </div>
     <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
     <button class="btn gold" id="primaryMissionBtn" style="margin-bottom:14px;">🎯 Primary Mission</button>
-    ${buildSideTrackerHtml(tracker.my, 'my', 'My Army')}
-    ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`)}
+    ${buildSideTrackerHtml(tracker.my, 'my', 'My Army', tracker.turn)}
+    ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`, tracker.turn)}
     <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
   `;
 }
 
 function buildSideTrackerReadOnlyHtml(side, label){
-  const scored = (side.secondaries || []).filter(s => s.scored);
-  const secHtml = scored.map(s => `<div class="secItem"><span class="secName scored">${escapeHtml(s.name)}</span><span class="secPts">${s.points || 0} pts</span></div>`).join('') || `<div class="loadSub">No secondaries scored.</div>`;
+  const completed = side.completedSecondaries || [];
+  const secHtml = completed.map(c => `<div class="secItem"><span class="secName scored">${escapeHtml(c.displayName)}</span><span class="secPts">${c.vp || 0} VP</span></div>`).join('') || `<div class="loadSub">No secondaries achieved.</div>`;
   return `
     <div class="trackerSide">
       <div class="sectionTitle">${escapeHtml(label)} — Final</div>
       <div class="counterRow"><span class="counterLabel">CP Remaining</span><span class="counterVal">${side.cp}</span></div>
       <div class="counterRow"><span class="counterLabel">Primary VP</span><span class="counterVal">${side.primaryVP || 0}</span></div>
-      <div class="secListLabel">Secondaries Scored</div>
+      <div class="secListLabel">Secondaries Achieved</div>
       ${secHtml}
     </div>
   `;
+}
+
+// Same scoring-block rendering as buildPrimaryMissionSideHtml (header, WHEN,
+// each entry's VP), but a Secondary Mission card has no per-turn "this is
+// the active one" concept to highlight — every block is just shown as
+// written — and entries can lead with "OR" (alternative condition) instead
+// of "+" (additive), and carry a VP cap ("(UP TO 5VP)") alongside plain
+// VP values. Also shown here: the optional WHEN-DRAWN/explanatory intro
+// text, and the nested Objective Action a handful of cards define.
+function buildSecondaryScoringHtml(card){
+  const blocksHtml = (card.scoring || []).map(block => `
+    <div class="missionBlock">
+      <div class="missionBlockHdr">${escapeHtml(block.header)}</div>
+      ${block.when ? `<div class="missionBlockWhen">WHEN: ${escapeHtml(block.when)}</div>` : ''}
+      ${block.entries.map(e => `
+        <div class="missionEntry">
+          <span>${e.or ? 'OR ' : e.plus ? '+ ' : ''}${escapeHtml(e.text)}</span>
+          <span class="missionVP">${escapeHtml(e.vp)}${e.cap ? ' ' + escapeHtml(e.cap) : ''}</span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+  const actionHtml = card.action ? `
+    <div class="missionAction">
+      <div class="missionActionName">🎯 ${escapeHtml(card.action.displayName)} (Objective Action)</div>
+      ${card.action.rows.map(r => `<div class="missionActionRow"><b>${escapeHtml(r.label)}:</b> ${escapeHtml(r.text)}</div>`).join('')}
+    </div>
+  ` : '';
+  return `
+    <div class="missionSide">
+      <div class="missionSideHead">
+        <div class="missionName">${escapeHtml(card.displayName)}</div>
+        <div class="missionFlavor">${escapeHtml(card.flavor)}</div>
+        ${card.intro ? `<div class="missionFlavor" style="font-style:normal; margin-top:8px;">${escapeHtml(card.intro)}</div>` : ''}
+      </div>
+      ${blocksHtml}
+      ${actionHtml}
+    </div>
+  `;
+}
+
+// Reached by tapping an active Secondary Mission card. Shows its full text
+// and lets the player bank VP for it once they've read the conditions and
+// decided they met them — same "player reads the card, types in what they
+// scored" pattern already used for Primary VP, since the app has no way to
+// know what happened on the table. Banking discards the card (achieved
+// Tactical Secondaries are discarded per the real rule) and returns to the
+// Tracker tab with the total updated.
+async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const tracker = ensureTracker(battle);
+  const side = team === 'my' ? tracker.my : tracker.opponent;
+  const card = (side.secondaries || []).find(s => s.id === secId);
+  if(!card){ renderBattleTracker(battleId, returnTab || 'tracker'); return; }
+
+  main.innerHTML = `
+    ${buildSecondaryScoringHtml(card)}
+    <div class="counterRow" style="margin-top:14px;">
+      <span class="counterLabel">VP Scored</span>
+      <input type="number" id="secAchieveVpInput" min="0" class="vpInput" style="max-width:100px;" value="0"/>
+    </div>
+    <button class="btn primary" id="secAchieveBtn" style="margin-top:10px;">✓ Mark Achieved</button>
+  `;
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="secCardBackBtn" data-nav-back>← Back to Tracker</button>`;
+  document.getElementById('secCardBackBtn').onclick = () => renderBattleTracker(battleId, returnTab || 'tracker');
+  document.getElementById('secAchieveBtn').onclick = async () => {
+    const vp = Math.max(0, parseInt(document.getElementById('secAchieveVpInput').value, 10) || 0);
+    await updateBattleTracker(battleId, t => {
+      achieveSecondaryCard(team === 'my' ? t.my : t.opponent, secId, vp, t.turn);
+    });
+    renderBattleTracker(battleId, returnTab || 'tracker');
+  };
+}
+
+// The long-press menu on an active Secondary Mission card — two real,
+// sourced mechanics for cycling a Tactical Secondary mid-battle (see
+// scripts/fetch-secondary-missions.mjs for where "New Orders" was
+// confirmed in Wahapedia's core Stratagems.csv, and the Core Rules'
+// "Achieving Secondary Missions" step for the CP-discard): New Orders
+// (1CP, discard this card and draw a new one, once per battle per side)
+// and a plain discard for 1CP (unlimited — the achieving-secondaries step
+// doesn't cap how many times this can be used). Reuses the existing
+// .modalOverlay pattern (see showManualInstallModal) rather than a new
+// component.
+function showSecondaryActionMenu(battleId, team, card, tracker){
+  const side = team === 'my' ? tracker.my : tracker.opponent;
+  const newOrdersDisabled = side.usedNewOrders || side.cp < 1;
+  const overlay = document.createElement('div');
+  overlay.className = 'modalOverlay';
+  overlay.innerHTML = `
+    <div class="modalCard">
+      <div class="modalTitle">${escapeHtml(card.displayName)}</div>
+      <div class="modalBody">Choose an action for this Secondary Mission.</div>
+      <button class="btn gold" id="secMenuNewOrders" style="margin-top:14px;" ${newOrdersDisabled ? 'disabled' : ''}>⚡ New Orders (1CP) — Discard &amp; Redraw${side.usedNewOrders ? ' (used)' : ''}</button>
+      <button class="btn gold" id="secMenuDiscardCp" style="margin-top:8px;">💰 Discard (+1 CP)</button>
+      <button class="btn ghost" id="secMenuCancel" style="margin-top:8px;">✕ Cancel</button>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  document.getElementById('secMenuCancel').onclick = () => overlay.remove();
+  document.getElementById('secMenuNewOrders').onclick = async () => {
+    overlay.remove();
+    const missionsData = await loadSecondaryMissionsData();
+    if(!missionsData) return;
+    await updateBattleTracker(battleId, t => {
+      const s = team === 'my' ? t.my : t.opponent;
+      if(s.usedNewOrders || s.cp < 1) return;
+      s.cp -= 1;
+      s.usedNewOrders = true;
+      discardSecondaryCard(s, card.id);
+      drawSecondaryCard(s, missionsData);
+    });
+    renderBattleTracker(battleId, 'tracker');
+  };
+  document.getElementById('secMenuDiscardCp').onclick = async () => {
+    overlay.remove();
+    await updateBattleTracker(battleId, t => {
+      const s = team === 'my' ? t.my : t.opponent;
+      discardSecondaryCard(s, card.id);
+      s.cp += 1;
+    });
+    renderBattleTracker(battleId, 'tracker');
+  };
 }
 
 async function renderBattleTracker(battleId, tab){
@@ -2374,9 +2602,28 @@ async function renderBattleTracker(battleId, tab){
   currentBattleContext = null;
   renderLoading('OPENING ARCHIVE', 'Loading battle tracker…');
 
-  const battle = await getBattleById(battleId);
-  if(!battle){ renderBattleList(); return; }
-  const tracker = ensureTracker(battle);
+  const battle0 = await getBattleById(battleId);
+  if(!battle0){ renderBattleList(); return; }
+  let battle = battle0;
+  let tracker = ensureTracker(battle);
+
+  // The Secondary Mission draw deck needs to exist (and be persisted, not
+  // just held in memory) before the Tracker tab can render or draw from
+  // it — lazily backfilled here rather than in ensureTracker itself, since
+  // building the deck needs the mission data fetched first, and only the
+  // Tracker tab ever needs it at all.
+  let secondaryMissionsData = null;
+  if(tab === 'tracker' && !tracker.finished){
+    secondaryMissionsData = await loadSecondaryMissionsData();
+    if(secondaryMissionsData){
+      const allMissionKeys = secondaryMissionsData.missions.map(m => normalizeMissionKey(m.displayName));
+      const updated = await updateBattleTracker(battleId, t => {
+        ensureSecondaryDeck(t.my, allMissionKeys);
+        ensureSecondaryDeck(t.opponent, allMissionKeys);
+      });
+      if(updated){ battle = updated; tracker = ensureTracker(battle); }
+    }
+  }
 
   const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)
     : tab === 'opponent' ? buildTeamHtml(battle.opponentUnits, 'opponent', battle.opponentActiveDetachmentId)
@@ -2435,41 +2682,31 @@ async function renderBattleTracker(battleId, tab){
         renderBattleTracker(battleId, 'tracker');
       });
     });
-    main.querySelectorAll('[data-sec-add-team]').forEach(btn => {
+    main.querySelectorAll('[data-draw-team]').forEach(btn => {
       btn.onclick = async () => {
-        const team = btn.getAttribute('data-sec-add-team');
-        const nameInput = main.querySelector(`[data-sec-name-team="${team}"]`);
-        const ptsInput = main.querySelector(`[data-sec-pts-team="${team}"]`);
-        const name = nameInput.value.trim();
-        if(!name) return;
-        const points = Math.max(0, parseInt(ptsInput.value, 10) || 0);
+        const team = btn.getAttribute('data-draw-team');
+        const missionsData = secondaryMissionsData || await loadSecondaryMissionsData();
+        if(!missionsData) return;
         await updateBattleTracker(battleId, t => {
-          t[team].secondaries = t[team].secondaries || [];
-          t[team].secondaries.push({ id: uid('sec_'), name, points, scored: false });
+          const s = t[team];
+          if(s.secondaryLastDrawnTurn === t.turn) return;
+          drawSecondaryCard(s, missionsData);
+          drawSecondaryCard(s, missionsData);
+          s.secondaryLastDrawnTurn = t.turn;
         });
         renderBattleTracker(battleId, 'tracker');
       };
     });
-    main.querySelectorAll('.secScoredCheck').forEach(cb => {
-      cb.addEventListener('change', async () => {
-        const team = cb.getAttribute('data-sec-team');
-        const secId = cb.getAttribute('data-sec-id');
-        await updateBattleTracker(battleId, t => {
-          const s = (t[team].secondaries || []).find(x => x.id === secId);
-          if(s) s.scored = cb.checked;
-        });
-        renderBattleTracker(battleId, 'tracker');
+    main.querySelectorAll('.secItem[data-sec-id]').forEach(el => {
+      const team = el.getAttribute('data-sec-team');
+      const secId = el.getAttribute('data-sec-id');
+      const card = (tracker[team].secondaries || []).find(s => s.id === secId);
+      if(!card) return;
+      const wasLongPress = attachLongPress(el, () => showSecondaryActionMenu(battleId, team, card, tracker));
+      el.addEventListener('click', () => {
+        if(wasLongPress()) return;
+        renderSecondaryMissionCard(battleId, team, secId, 'tracker');
       });
-    });
-    main.querySelectorAll('[data-sec-remove-id]').forEach(btn => {
-      btn.onclick = async () => {
-        const team = btn.getAttribute('data-sec-remove-team');
-        const secId = btn.getAttribute('data-sec-remove-id');
-        await updateBattleTracker(battleId, t => {
-          t[team].secondaries = (t[team].secondaries || []).filter(s => s.id !== secId);
-        });
-        renderBattleTracker(battleId, 'tracker');
-      };
     });
     document.getElementById('finishTurnBtn').onclick = async () => {
       if(tracker.turn >= TOTAL_TURNS){

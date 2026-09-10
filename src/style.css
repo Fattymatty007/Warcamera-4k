@@ -213,20 +213,15 @@ textarea::placeholder{font-style:italic; color:var(--muted);}
 
 .secListLabel{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin:10px 0 6px; }
 .secItem{
-  display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #241d14;
+  display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid #241d14;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
 }
 .secItem:last-of-type{ border-bottom:none; }
-.secLabel{ flex:1; display:flex; align-items:center; gap:8px; cursor:pointer; }
-.secLabel input[type=checkbox]{ width:18px; height:18px; flex-shrink:0; }
+.secItem.secItemDone{ cursor:default; }
 .secName{ flex:1; font-size:12px; color:var(--parchment); }
-.secName.scored{ color:var(--good); text-decoration:line-through; }
+.secName.scored{ color:var(--good); }
 .secPts{ font-size:11px; color:var(--brass); white-space:nowrap; }
-.secRemoveBtn{
-  background:none; border:none; color:var(--muted); font-size:14px; cursor:pointer; padding:4px;
-}
-.secAddRow{ display:flex; gap:6px; margin-top:10px; }
-.secAddRow input[type=text]{ flex:2; padding:10px; }
-.secAddRow input[type=number]{ flex:1; padding:10px; }
+.secMenuHint{ color:var(--muted); font-size:14px; padding:0 4px; }
 
 /* camera view */
 #camWrap{
