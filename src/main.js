@@ -1535,12 +1535,37 @@ function discardSecondaryCard(side, secId){
 // Moves an active card to the completed pile once its VP is banked — it's
 // achieved, out of play for the rest of the battle (real rule: achieving a
 // Tactical Secondary Mission discards it), so it comes off the active list
-// entirely rather than staying there ticked.
+// entirely rather than staying there ticked. Keeps the full card (not just
+// name/vp) so a completed card can still be reopened later — a mis-typed
+// VP or an accidental achieve is easy to do mid-game, and there'd be no
+// way to fix it otherwise.
 function achieveSecondaryCard(side, secId, vp, turn){
   const card = (side.secondaries || []).find(s => s.id === secId);
   if(!card) return null;
   side.secondaries = side.secondaries.filter(s => s.id !== secId);
-  side.completedSecondaries.push({ id: card.id, key: card.key, displayName: card.displayName, vp, turn });
+  side.completedSecondaries.push({ ...card, vp, turn });
+  return card;
+}
+
+// Reverses achieveSecondaryCard — for an achieve that shouldn't have
+// happened at all (tapped the wrong card, conditions weren't actually
+// met), rather than just a wrong VP amount (see updateAchievedSecondaryVp).
+function unachieveSecondaryCard(side, secId){
+  const card = (side.completedSecondaries || []).find(s => s.id === secId);
+  if(!card) return null;
+  side.completedSecondaries = side.completedSecondaries.filter(s => s.id !== secId);
+  const { vp, turn, ...restored } = card;
+  side.secondaries.push(restored);
+  return card;
+}
+
+// Corrects the banked VP on an already-achieved card without touching
+// anything else about it (still completed, still discarded) — for a
+// simple mis-typed amount.
+function updateAchievedSecondaryVp(side, secId, vp){
+  const card = (side.completedSecondaries || []).find(s => s.id === secId);
+  if(!card) return null;
+  card.vp = vp;
   return card;
 }
 
@@ -2400,8 +2425,13 @@ function buildSideTrackerHtml(side, team, label, turn){
 
   const completed = side.completedSecondaries || [];
   const completedHtml = completed.length ? `
-    <div class="secListLabel" style="margin-top:10px;">Achieved</div>
-    ${completed.map(c => `<div class="secItem secItemDone"><span class="secName scored">✓ ${escapeHtml(c.displayName)}</span><span class="secPts">${c.vp || 0} VP</span></div>`).join('')}
+    <div class="secListLabel" style="margin-top:10px;">Achieved (tap to review or fix)</div>
+    ${completed.map(c => `
+      <div class="secItem secItemDone" data-sec-id="${c.id}" data-sec-team="${team}" data-sec-completed="1">
+        <span class="secName scored">✓ ${escapeHtml(c.displayName)}</span>
+        <span class="secPts">${c.vp || 0} VP</span>
+      </div>
+    `).join('')}
   ` : '';
 
   const alreadyDrawn = side.secondaryLastDrawnTurn === turn;
@@ -2508,29 +2538,34 @@ function buildSecondaryScoringHtml(card){
   `;
 }
 
-// Reached by tapping an active Secondary Mission card. Shows its full text
-// and lets the player bank VP for it once they've read the conditions and
-// decided they met them — same "player reads the card, types in what they
-// scored" pattern already used for Primary VP, since the app has no way to
-// know what happened on the table. Banking discards the card (achieved
-// Tactical Secondaries are discarded per the real rule) and returns to the
-// Tracker tab with the total updated.
+// Reached by tapping a Secondary Mission card, active or already achieved
+// — an achieved card isn't locked, since a mis-typed VP or an accidental
+// achieve is easy to do mid-game and there'd otherwise be no way to fix
+// it. Shows the card's full text either way, and lets the player bank (or
+// re-bank) VP for it once they've read the conditions and decided they met
+// them — same "player reads the card, types in what they scored" pattern
+// already used for Primary VP, since the app has no way to know what
+// happened on the table.
 async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
   const tracker = ensureTracker(battle);
   const side = team === 'my' ? tracker.my : tracker.opponent;
-  const card = (side.secondaries || []).find(s => s.id === secId);
+  const activeCard = (side.secondaries || []).find(s => s.id === secId);
+  const completedCard = (side.completedSecondaries || []).find(s => s.id === secId);
+  const card = activeCard || completedCard;
   if(!card){ renderBattleTracker(battleId, returnTab || 'tracker'); return; }
+  const isCompleted = !activeCard;
 
   main.innerHTML = `
     ${buildSecondaryScoringHtml(card)}
     <div class="counterRow" style="margin-top:14px;">
       <span class="counterLabel">VP Scored</span>
-      <input type="number" id="secAchieveVpInput" min="0" class="vpInput" style="max-width:100px;" value="0"/>
+      <input type="number" id="secAchieveVpInput" min="0" class="vpInput" style="max-width:100px;" value="${isCompleted ? (completedCard.vp || 0) : 0}"/>
     </div>
-    <button class="btn primary" id="secAchieveBtn" style="margin-top:10px;">✓ Mark Achieved</button>
+    <button class="btn primary" id="secAchieveBtn" style="margin-top:10px;">${isCompleted ? '✓ Update VP' : '✓ Mark Achieved'}</button>
+    ${isCompleted ? '<button class="btn ghost" id="secUnachieveBtn" style="margin-top:8px;">↩ Un-Achieve (Move Back to Active)</button>' : ''}
   `;
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="secCardBackBtn" data-nav-back>← Back to Tracker</button>`;
@@ -2538,10 +2573,20 @@ async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   document.getElementById('secAchieveBtn').onclick = async () => {
     const vp = Math.max(0, parseInt(document.getElementById('secAchieveVpInput').value, 10) || 0);
     await updateBattleTracker(battleId, t => {
-      achieveSecondaryCard(team === 'my' ? t.my : t.opponent, secId, vp, t.turn);
+      const s = team === 'my' ? t.my : t.opponent;
+      if(isCompleted) updateAchievedSecondaryVp(s, secId, vp);
+      else achieveSecondaryCard(s, secId, vp, t.turn);
     });
     renderBattleTracker(battleId, returnTab || 'tracker');
   };
+  if(document.getElementById('secUnachieveBtn')){
+    document.getElementById('secUnachieveBtn').onclick = async () => {
+      await updateBattleTracker(battleId, t => {
+        unachieveSecondaryCard(team === 'my' ? t.my : t.opponent, secId);
+      });
+      renderBattleTracker(battleId, returnTab || 'tracker');
+    };
+  }
 }
 
 // A handful of Secondary Missions carry their own discard-and-redraw
@@ -2749,7 +2794,7 @@ async function renderBattleTracker(battleId, tab){
         renderBattleTracker(battleId, 'tracker');
       };
     });
-    main.querySelectorAll('.secItem[data-sec-id]').forEach(el => {
+    main.querySelectorAll('.secItem[data-sec-id]:not([data-sec-completed])').forEach(el => {
       const team = el.getAttribute('data-sec-team');
       const secId = el.getAttribute('data-sec-id');
       const card = (tracker[team].secondaries || []).find(s => s.id === secId);
@@ -2759,6 +2804,15 @@ async function renderBattleTracker(battleId, tab){
         if(wasLongPress()) return;
         renderSecondaryMissionCard(battleId, team, secId, 'tracker');
       });
+    });
+    // Achieved cards stay tappable too — no long-press menu (New Orders/
+    // discard don't apply to a card that's already banked), just a plain
+    // open, so a mis-typed VP or an accidental achieve can still be fixed
+    // instead of being locked in for the rest of the battle.
+    main.querySelectorAll('.secItem[data-sec-completed]').forEach(el => {
+      const team = el.getAttribute('data-sec-team');
+      const secId = el.getAttribute('data-sec-id');
+      el.addEventListener('click', () => renderSecondaryMissionCard(battleId, team, secId, 'tracker'));
     });
     document.getElementById('finishTurnBtn').onclick = async () => {
       if(tracker.turn >= TOTAL_TURNS){

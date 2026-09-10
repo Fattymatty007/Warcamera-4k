@@ -218,7 +218,6 @@ textarea::placeholder{font-style:italic; color:var(--muted);}
   cursor:pointer; -webkit-tap-highlight-color:transparent;
 }
 .secItem:last-of-type{ border-bottom:none; }
-.secItem.secItemDone{ cursor:default; }
 .secName{ flex:1; font-size:12px; color:var(--parchment); }
 .secName.scored{ color:var(--good); }
 .secPts{ font-size:11px; color:var(--brass); white-space:nowrap; }
