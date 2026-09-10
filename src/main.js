@@ -1286,6 +1286,24 @@ async function updateBattleTracker(battleId, mutateFn){
   return battle;
 }
 
+// Each side's Deposition — the 40k term for which primary mission that
+// army is playing to score against — free-form text, one field per side,
+// filled in on Battle Detail before Start Battle. There's no free live
+// source to build a fixed list of official mission names from (checked;
+// Wahapedia's structured data export has no missions table, and its
+// rendered mission-rules page couldn't be scraped this round either —
+// same open-ended approach as the tracker's secondaries for the same
+// reason). Lives directly on the battle, not under .tracker, since it's
+// setup info rather than in-game tracker state.
+async function saveDepositionNotes(battleId, team, text){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return;
+  if(team === 'my') battle.myDeposition = text;
+  else battle.opponentDeposition = text;
+  await saveBattlesList(list);
+}
+
 // ---------- COLLECTION (saved units, reusable across battles) ----------
 // A datasheet saved here is a standalone copy, same pattern as a battle
 // roster entry — reopening or adding it to a battle never needs another
@@ -1553,6 +1571,9 @@ async function renderBattleDetail(battleId){
     <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(battle.opponent)}'s Army (${battle.opponentUnits.length})</div>
     ${buildTeamHtml(battle.opponentUnits, 'opponent')}
     ${battle.opponentUnits.length ? `<button class="btn ghost" id="shareOppQrBtn" style="margin-top:6px;">📤 Share ${escapeHtml(battle.opponent)}'s Army as QR</button>` : ''}
+    <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">Deposition</div>
+    <input type="text" id="myDepositionInput" placeholder="My deposition (primary mission)" value="${escapeHtml(battle.myDeposition || '')}"/>
+    <input type="text" id="oppDepositionInput" placeholder="${escapeHtml(battle.opponent)}'s deposition" value="${escapeHtml(battle.opponentDeposition || '')}" style="margin-top:8px;"/>
     <button class="btn primary" id="scanForBattleBtn" style="margin-top:14px;">➕ Add Units</button>
     <button class="btn gold" id="startBattleTrackerBtn">${battleBtnLabel}</button>
     <button class="btn ghost" id="deleteBattleBtn">🗑 Delete This Battle</button>
@@ -1564,6 +1585,12 @@ async function renderBattleDetail(battleId){
   wireTeamCards(battle, battleId, 'opponent', (unit) => renderBattleUnitView(battle, unit), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
+  document.getElementById('myDepositionInput').addEventListener('change', (e) => {
+    saveDepositionNotes(battleId, 'my', e.target.value.trim());
+  });
+  document.getElementById('oppDepositionInput').addEventListener('change', (e) => {
+    saveDepositionNotes(battleId, 'opponent', e.target.value.trim());
+  });
   document.getElementById('startBattleTrackerBtn').onclick = async () => {
     if(!tracker.started){
       await updateBattleTracker(battleId, t => { t.started = true; });
