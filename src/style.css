@@ -175,6 +175,7 @@ textarea::placeholder{font-style:italic; color:var(--muted);}
 /* battle tracker */
 .tabBar{
   display:flex; border:1px solid var(--iron); margin-bottom:14px;
+  position:sticky; top:0; z-index:5;
 }
 .tabBtn{
   flex:1; padding:12px 6px; background:var(--panel2); border:none;
