@@ -270,6 +270,18 @@ async function renderPrimaryMission(battleId, returnTab){
   const tracker = ensureTracker(battle);
   const missionsData = await loadMissionsData();
 
+  // Units (and Detachments) can be added mid-battle, not just before Start
+  // Battle — a second Detachment showing up on a side that only had one
+  // makes its Deposition ambiguous again, same real 40k rule as before.
+  // Recomputed fresh every time this screen renders (nothing here is
+  // cached), so a Deposition picked or changed elsewhere is always
+  // reflected the next time this screen is opened — and this screen can
+  // also resolve it directly, rather than sending the player away to fix
+  // it and back again.
+  const myNeedsChoice = needsDispositionChoice(battle.myUnits, battle.myActiveDetachmentId);
+  const oppNeedsChoice = needsDispositionChoice(battle.opponentUnits, battle.opponentActiveDetachmentId);
+  const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
+
   const myDetach = resolveActiveDetachment(battle.myUnits, battle.myActiveDetachmentId);
   const oppDetach = resolveActiveDetachment(battle.opponentUnits, battle.opponentActiveDetachmentId);
   const myDisposition = myDetach && myDetach.card.disposition;
@@ -278,8 +290,18 @@ async function renderPrimaryMission(battleId, returnTab){
   const myMission = findPrimaryMission(missionsData, myDisposition, oppDisposition);
   const oppMission = findPrimaryMission(missionsData, oppDisposition, myDisposition);
 
+  const whichSide = myNeedsChoice && oppNeedsChoice ? 'both armies' : myNeedsChoice ? 'My Army' : `${battle.opponent}'s Army`;
+  const needsChoiceNote = (myNeedsChoice || oppNeedsChoice)
+    ? `<div class="noteBox" style="border-color:var(--blood-bright); color:var(--parchment);">More than one Detachment is on ${escapeHtml(whichSide)} — pick which one's Deposition applies to see the right Primary Mission.</div>`
+    : '';
+  const detachButtonHtml = hasMultipleDetachments
+    ? `<button class="btn ${(myNeedsChoice || oppNeedsChoice) ? 'gold' : 'ghost'}" id="resolveDispositionBtn" style="margin-bottom:14px;">${(myNeedsChoice || oppNeedsChoice) ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>`
+    : '';
+
   main.innerHTML = `
     <div class="turnBadge">Turn ${tracker.turn} of ${TOTAL_TURNS}</div>
+    ${needsChoiceNote}
+    ${detachButtonHtml}
     ${!missionsData ? '<div class="noteBox">Could not load mission data — check your connection and try again.</div>' : ''}
     ${buildPrimaryMissionSideHtml(myMission, 'My Primary Mission', tracker.turn, TOTAL_TURNS)}
     ${buildPrimaryMissionSideHtml(oppMission, `${battle.opponent}'s Primary Mission`, tracker.turn, TOTAL_TURNS)}
@@ -287,6 +309,9 @@ async function renderPrimaryMission(battleId, returnTab){
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="missionBackBtn" data-nav-back>← Back to Tracker</button>`;
   document.getElementById('missionBackBtn').onclick = () => renderBattleTracker(battleId, returnTab || 'tracker');
+  if(document.getElementById('resolveDispositionBtn')){
+    document.getElementById('resolveDispositionBtn').onclick = () => renderChooseActiveDetachment(battleId, () => renderPrimaryMission(battleId, returnTab));
+  }
 }
 
 async function withFreshDisposition(card){
@@ -1810,7 +1835,8 @@ async function renderBattleDetail(battleId){
 // picks it immediately and re-renders this same screen so the choice is
 // visible right away; Continue only actually proceeds once every side
 // that needs one has a valid choice made.
-async function renderChooseActiveDetachment(battleId){
+async function renderChooseActiveDetachment(battleId, onDone){
+  onDone = onDone || (() => renderBattleDetail(battleId));
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
@@ -1845,7 +1871,7 @@ async function renderChooseActiveDetachment(battleId){
   main.querySelectorAll('[data-choose-detach]').forEach(btn => {
     btn.onclick = async () => {
       await updateBattleActiveDetachment(battleId, btn.getAttribute('data-choose-team'), btn.getAttribute('data-choose-detach'));
-      renderChooseActiveDetachment(battleId);
+      renderChooseActiveDetachment(battleId, onDone);
     };
   });
 
@@ -1856,9 +1882,9 @@ async function renderChooseActiveDetachment(battleId){
       main.insertAdjacentHTML('afterbegin', '<div class="noteBox" style="border-color:var(--blood-bright); color:var(--parchment);">Pick one Detachment for each army listed above before continuing.</div>');
       return;
     }
-    renderBattleDetail(battleId);
+    onDone();
   };
-  document.getElementById('cancelDetachChoiceBtn').onclick = () => renderBattleDetail(battleId);
+  document.getElementById('cancelDetachChoiceBtn').onclick = onDone;
 }
 
 function renderDeleteBattleConfirm(battle){
@@ -2027,7 +2053,14 @@ async function renderBattleCollectionPicker(battleId, team){
           await addUnitToBattle(battleId, team, u);
         }
       }
-      renderBattleDetail(battleId);
+      // Reaching this screen via the Battle Tracker's own "Add Units" (see
+      // renderBattleTracker) sets returnToTracker so finishing here goes
+      // back to that same tab, not the plain roster screen — same as the
+      // scan/search "add to battle" path already does.
+      const ctx = currentBattleContext;
+      currentBattleContext = null;
+      if(ctx && ctx.returnToTracker) renderBattleTracker(battleId, team);
+      else renderBattleDetail(battleId);
     };
   }
   document.getElementById('collPickerBackBtn').onclick = () => renderBattleScanEntry(battleId, team);
