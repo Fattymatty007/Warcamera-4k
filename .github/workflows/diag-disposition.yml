@@ -1,0 +1,26 @@
+name: Diagnostic - inspect Detachments.csv force_disposition/type/dp fields
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump Detachments.csv columns and sample values
+        run: |
+          UA="Mozilla/5.0 (compatible; warcamera-4k-diag/1.0)"
+          curl -s -A "$UA" "https://wahapedia.ru/wh40k11ed/Detachments.csv" -o /tmp/det.csv
+          echo "--- header ---"
+          head -1 /tmp/det.csv
+          echo ""
+          echo "--- first 15 data rows ---"
+          sed -n '2,16p' /tmp/det.csv
+          echo ""
+          echo "--- distinct 'type' values ---"
+          awk -F'|' 'NR>1{print $5}' /tmp/det.csv | sort -u
+          echo ""
+          echo "--- distinct 'dp' values ---"
+          awk -F'|' 'NR>1{print $6}' /tmp/det.csv | sort -u
+          echo ""
+          echo "--- distinct 'force_disposition' values ---"
+          awk -F'|' 'NR>1{print $7}' /tmp/det.csv | sort -u
