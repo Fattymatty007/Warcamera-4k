@@ -7,31 +7,30 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch the mission-deck-2026-27 page
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the fetch-secondary-missions parser
+        run: node scripts/fetch-secondary-missions.mjs
+      - name: Inspect the resulting data
         run: |
-          curl -sL "https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/" -A "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" -o /tmp/page.html
-      - name: Dump raw HTML for "A GRIEVOUS BLOW" and "ENGAGE ON ALL FRONTS" (FIXED/TACTICAL dual VP)
-        run: |
-          python3 -c "
-          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
-          sm = html.find('id=\"Secondary-Mission-deck\"')
-          for name in ['A GRIEVOUS BLOW', 'ENGAGE ON ALL FRONTS']:
-            idx = html.find(name, sm)
-            start = html.rfind('cgCard_pad', sm, idx)
-            end = html.find('cgCard_pad', idx)
-            print('=== ', name, ' ===')
-            print(html[start:end])
-            print()
-          "
-      - name: Count total Secondary Mission cards and list all names
-        run: |
-          python3 -c "
-          html = open('/tmp/page.html', encoding='utf-8', errors='replace').read()
-          sm = html.find('id=\"Secondary-Mission-deck\"')
-          tw = html.find('id=\"Twist-deck\"')
-          section = html[sm:tw]
-          import re
-          names = re.findall(r'<div class=\"ca7Name\">([^<]+)</div>', section)
-          print('Total secondary mission cards:', len(names))
-          for n in names: print(' -', n)
+          node -e "
+          const d = require('./public/secondary-missions-data.json');
+          console.log('Total missions:', d.missions.length);
+          console.log();
+          console.log('=== Names ===');
+          for (const m of d.missions) console.log(' -', m.displayName, m.isFixedEligible ? '(fixed-eligible)' : '');
+          console.log();
+          console.log('=== NO PRISONERS (simple, single-VP with a cap) ===');
+          console.log(JSON.stringify(d.missions.find(m => m.displayName === 'NO PRISONERS'), null, 2));
+          console.log();
+          console.log('=== A GRIEVOUS BLOW (WHEN DRAWN + FIXED/TACTICAL pair) ===');
+          console.log(JSON.stringify(d.missions.find(m => m.displayName === 'A GRIEVOUS BLOW'), null, 2));
+          console.log();
+          console.log('=== ENGAGE ON ALL FRONTS (intro text, no WHEN DRAWN, OR + FIXED/TACTICAL) ===');
+          console.log(JSON.stringify(d.missions.find(m => m.displayName === 'ENGAGE ON ALL FRONTS'), null, 2));
+          console.log();
+          console.log('=== PLUNDER (WHEN DRAWN synergy + Objective Action) ===');
+          console.log(JSON.stringify(d.missions.find(m => m.displayName === 'PLUNDER'), null, 2));
           "
