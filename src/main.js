@@ -1508,22 +1508,43 @@ function renderNewBattleForm(){
 function buildTeamHtml(units, team){
   if(!units.length) return `<div class="noteBox">No units scanned for this side yet.</div>`;
   // The army list's own text card always reads first, regardless of when
-  // it was added relative to the units — everything else keeps its
-  // existing (list) order.
-  const ordered = [...units].sort((a, b) => (b.isTextList?1:0) - (a.isTextList?1:0));
-  return ordered.map(u => u.isTextList ? `
-    <div class="libCard" data-unit="${u.id}" data-team="${team}">
-      <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
-      <div class="libMeta">Text document</div>
-      <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
-    </div>
-  ` : `
-    <div class="libCard" data-unit="${u.id}" data-team="${team}">
-      <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
-      <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-      <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
-    </div>
-  `).join('');
+  // it was added relative to the units, with Detachment Rules cards
+  // right after it — both are roster-level reference material, distinct
+  // from the individual model units that make up the rest of the list
+  // (in original order otherwise).
+  const rank = (u) => u.isTextList ? 0 : u.isDetachment ? 1 : 2;
+  const ordered = [...units].sort((a, b) => rank(a) - rank(b));
+  return ordered.map(u => {
+    if(u.isTextList) return `
+      <div class="libCard" data-unit="${u.id}" data-team="${team}">
+        <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
+        <div class="libMeta">Text document</div>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+    if(u.isDetachment) return `
+      <div class="libCard" data-unit="${u.id}" data-team="${team}">
+        <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules</div>
+        <div class="libMeta">${escapeHtml(u.card.faction||'')} · Detachment Rules</div>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+    return `
+      <div class="libCard" data-unit="${u.id}" data-team="${team}">
+        <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
+        <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+      </div>
+    `;
+  }).join('');
+}
+
+// A roster card built by buildTeamHtml is either a real unit/text-list
+// entry (renderBattleUnitView already handles both) or a Detachment Rules
+// card, which needs the separate detachment-card viewer instead.
+function renderRosterEntry(unit, battle, onBack, backLabel){
+  if(unit.isDetachment) renderDetachmentRulesView(unit.card, onBack, backLabel);
+  else renderBattleUnitView(battle, unit, onBack, backLabel);
 }
 
 // Wires up the roster cards buildTeamHtml renders — tap to view a unit's
@@ -1581,8 +1602,8 @@ async function renderBattleDetail(battleId){
     <button id="battleDetailBackTarget" data-nav-back style="display:none;"></button>
   `;
 
-  wireTeamCards(battle, battleId, 'my', (unit) => renderBattleUnitView(battle, unit), () => renderBattleDetail(battleId));
-  wireTeamCards(battle, battleId, 'opponent', (unit) => renderBattleUnitView(battle, unit), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'my', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
+  wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
   document.getElementById('myDepositionInput').addEventListener('change', (e) => {
@@ -1753,6 +1774,13 @@ async function renderBattleCollectionPicker(battleId, team){
           if(u.rawText){
             await addUnitToBattle(battleId, team, { isTextList: true, listName: u.folderName, rawText: u.rawText });
           }
+          // Detachment Rules cards come along too, each as its own roster
+          // entry separate from both the list-text card and the units —
+          // otherwise they'd be silently dropped the moment a folder's
+          // units get split out into a battle.
+          for(const card of (u.detachmentCards || [])){
+            await addUnitToBattle(battleId, team, { isDetachment: true, card });
+          }
         } else {
           await addUnitToBattle(battleId, team, u);
         }
@@ -1775,7 +1803,11 @@ async function renderShareRosterQr(battleId, team){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
-  const units = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => !u.isTextList);
+  // The QR payload is a name+faction pair per unit, re-looked-up on
+  // import — text-list and Detachment Rules entries have neither, so
+  // they're excluded the same way (they'd otherwise show up as blank
+  // {n: undefined} junk in the payload).
+  const units = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => !u.isTextList && !u.isDetachment);
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
   const payload = JSON.stringify({ v: 1, u: units.map(u => ({ n: u.unit_name, f: u.faction || '' })) });
@@ -2086,7 +2118,7 @@ async function renderBattleTracker(battleId, tab){
 
   if(tab === 'my' || tab === 'opponent'){
     wireTeamCards(battle, battleId, tab,
-      (unit) => renderBattleUnitView(battle, unit, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
+      (unit) => renderRosterEntry(unit, battle, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
       () => renderBattleTracker(battleId, tab));
     if(document.getElementById('trackerAddUnitsBtn')){
       document.getElementById('trackerAddUnitsBtn').onclick = () => {
