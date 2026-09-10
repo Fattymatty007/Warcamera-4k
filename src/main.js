@@ -2561,9 +2561,8 @@ if('serviceWorker' in navigator){
   }).catch(() => {});
 }
 
-// Global "✕" in the header — same corner on every screen since the header
-// itself is static markup (only #main/#footer get re-rendered per screen).
-// Steps back exactly one screen rather than jumping all the way Home: each
+// Shared by the global "✕" and the phone's own back button/gesture below —
+// steps back exactly one screen rather than jumping all the way Home. Each
 // screen marks its own correct "back" action with a data-nav-back
 // attribute (almost always the same button/onclick a visible Back/Cancel/
 // Home control on that screen already uses — see the many small edits
@@ -2571,23 +2570,49 @@ if('serviceWorker' in navigator){
 // screen instead of tracking a separate navigation history). stopCamera()
 // is a no-op when nothing's active, so it's safe to call unconditionally
 // here too, on top of whatever the matched back target does itself.
-const globalCloseBtn = document.getElementById('globalCloseBtn');
-globalCloseBtn.onclick = () => {
+function goBackOneScreen(){
   stopCamera();
   const backTarget = document.querySelector('[data-nav-back]');
   if(backTarget) backTarget.click();
   else renderHome(); // safety net for the rare screen with no back target marked
-};
+}
+
+// Global "✕" in the header — same corner on every screen since the header
+// itself is static markup (only #main/#footer get re-rendered per screen).
+const globalCloseBtn = document.getElementById('globalCloseBtn');
+globalCloseBtn.onclick = goBackOneScreen;
 
 // Home has nowhere further back to go, so the close button has nothing to
 // do there — hidden rather than shown-but-inert. #scanBtn only ever exists
 // on Home, so checking for it after every #main repaint (instead of
 // threading visibility into all 44 render functions) is enough to track
 // this with a single small observer.
+function isOnHome(){ return !!document.getElementById('scanBtn'); }
 function syncGlobalCloseBtnVisibility(){
-  globalCloseBtn.style.display = document.getElementById('scanBtn') ? 'none' : 'flex';
+  globalCloseBtn.style.display = isOnHome() ? 'none' : 'flex';
 }
 new MutationObserver(syncGlobalCloseBtnVisibility).observe(main, { childList: true });
+
+// The phone's own back button/gesture used to just reload the app back to
+// its single starting history entry (since nothing here ever called
+// pushState), which looks like "back always dumps you on Home" no matter
+// how deep you were. Fixed with the standard SPA trick: keep one extra
+// synthetic history entry ("the cushion") sitting on top of the page's
+// real entry. Consuming it via back fires 'popstate' without actually
+// leaving the page (same document, so the browser doesn't unload
+// anything) — the handler immediately re-arms the cushion and calls the
+// exact same goBackOneScreen() the "✕" uses, so however many screens deep
+// the user is, each physical back press steps back exactly one screen
+// instead of the whole stack unwinding via browser history depth. Once
+// back reaches Home (no cushion re-armed there, matching the "✕" being
+// hidden there too), the next press is real browser back — leaving/
+// closing the app — exactly like there being no "✕" left to press either.
+history.pushState({ app: true }, '');
+window.addEventListener('popstate', () => {
+  if(isOnHome()) return;
+  history.pushState({ app: true }, '');
+  goBackOneScreen();
+});
 
 // init
 renderHome();
