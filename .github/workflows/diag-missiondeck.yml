@@ -18,13 +18,11 @@ jobs:
           import re
           # The section anchor follows the same id pattern as the other
           # headings we already saw (id=\"FAQ\", id=\"Books\"). Find it directly.
-          m = re.search(r'BOOBY TRAP', html)
-          print('anchor match:', m)
-          start = html.rfind('cgCard_pad', 0, m.start())
+          pm = re.search(r'id=\"Primary-Mission-deck\"', html)
+          m = re.search(r'BOOBY TRAP', html[pm.start():])
+          real_pos = pm.start() + m.start()
+          print('anchor match at', real_pos)
+          start = html.rfind('cgCard_pad', pm.start(), real_pos)
           chunk = html[start:start+3500]
           print(chunk)
-          print('=== DECK SECTION BOUNDS ===')
-          pm = re.search(r'id=\"Primary-Mission-deck\"', html)
-          dep = re.search(r'id=\"Deployment-deck\"', html)
-          print('Primary-Mission-deck at', pm.start(), 'Deployment-deck at', dep.start(), 'span', dep.start()-pm.start())
           "
