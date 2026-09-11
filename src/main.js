@@ -376,6 +376,20 @@ async function lookupOfficialDatasheet(unitName, factionHint){
   return variants[0];
 }
 
+// A saved/logged unit card (My Collection, a folder, a battle roster) is a
+// frozen snapshot taken whenever it was looked up — transport capacity was
+// added to the official dataset after some cards had already been saved
+// without it, so an old stored card can be missing it even though a fresh
+// lookup now has it. Patch it back in from the current dataset by
+// name+faction whenever a saved card is about to be shown, same pattern as
+// withFreshDisposition/withFreshSecondaryData elsewhere. A unit that
+// genuinely has no TRANSPORT keyword still comes back null either way.
+async function withFreshTransport(card){
+  if(!card || card.transport) return card;
+  const official = await lookupOfficialDatasheet(card.unit_name, card.faction);
+  return official && official.transport ? Object.assign({}, card, { transport: official.transport }) : card;
+}
+
 // Builds the same shape fetchDatasheet()/renderDatasheet() already expect
 // from a Gemini response, directly from the scraped dataset — points are
 // intentionally left blank/uncertain here since Wahapedia's export doesn't
@@ -2562,7 +2576,7 @@ function renderImportSummary(battleId, succeeded, failed){
 // only caller before the Battle Tracker existed) — the tracker's army
 // tabs pass their own, so tapping a unit from there returns to that same
 // tab instead of dropping out of the tracker.
-function renderBattleUnitView(battle, unit, onBack, backLabel){
+async function renderBattleUnitView(battle, unit, onBack, backLabel){
   onBack = onBack || (() => renderBattleDetail(battle.id));
   backLabel = backLabel || '← Back to Battle';
   setStatus('', 'STANDBY');
@@ -2570,6 +2584,7 @@ function renderBattleUnitView(battle, unit, onBack, backLabel){
     renderTextListView(unit, onBack, backLabel);
     return;
   }
+  unit = await withFreshTransport(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>`;
@@ -3192,8 +3207,9 @@ async function renderCollectionList(){
   document.getElementById('collectionHomeBtn').onclick = renderHome;
 }
 
-function renderCollectionUnitView(unit){
+async function renderCollectionUnitView(unit){
   setStatus('', 'STANDBY');
+  unit = await withFreshTransport(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn" data-nav-back>← Back to Collection</button>`;
@@ -3350,8 +3366,9 @@ function renderDetachmentFactionPicker(query, matches){
   document.getElementById('detachPickerCancelBtn').onclick = renderHome;
 }
 
-function renderCollectionFolderUnitView(entry, unit){
+async function renderCollectionFolderUnitView(entry, unit){
   setStatus('', 'STANDBY');
+  unit = await withFreshTransport(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn" data-nav-back>← Back to Folder</button>`;
