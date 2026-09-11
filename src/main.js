@@ -1615,8 +1615,31 @@ function ensureSecondaryDeck(side, allMissionKeys){
     ]);
     side.secondaryDeckKeys = shuffled(allMissionKeys.filter(k => !inUse.has(k)));
   }
-  if(side.secondaryLastDrawnTurn === undefined) side.secondaryLastDrawnTurn = 0;
+  // Which turns already had Secondary Missions resolved (drawn or manually
+  // set), and how — keyed by turn number, so going back to an earlier turn
+  // with Previous Turn still shows it as resolved instead of allowing a
+  // second draw/set there. Replaces the older secondaryLastDrawnTurn, which
+  // only remembered the single most recent turn drawn on, not every turn's
+  // own history — a battle saved with that old field gets it folded in here
+  // as a one-time migration (as a 'drawn' resolution, since that field only
+  // ever recorded a random draw) rather than losing that turn's state.
+  if(!side.secondaryTurnResolutions){
+    side.secondaryTurnResolutions = {};
+    if(side.secondaryLastDrawnTurn) side.secondaryTurnResolutions[side.secondaryLastDrawnTurn] = 'drawn';
+  }
   if(side.usedNewOrders === undefined) side.usedNewOrders = false;
+}
+
+function buildSecondaryCard(mission, key){
+  return {
+    id: uid('sec_'),
+    key,
+    displayName: mission.displayName,
+    flavor: mission.flavor,
+    intro: mission.intro,
+    scoring: mission.scoring,
+    action: mission.action,
+  };
 }
 
 // Draws one card, reshuffling the discard pile back into the deck first if
@@ -1634,15 +1657,27 @@ function drawSecondaryCard(side, missionsData){
   const key = side.secondaryDeckKeys.pop();
   const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
   if(!mission) return null;
-  const card = {
-    id: uid('sec_'),
-    key,
-    displayName: mission.displayName,
-    flavor: mission.flavor,
-    intro: mission.intro,
-    scoring: mission.scoring,
-    action: mission.action,
-  };
+  const card = buildSecondaryCard(mission, key);
+  side.secondaries.push(card);
+  return card;
+}
+
+// Adds a specific, player-chosen mission instead of a random draw — some
+// scenarios call for setting Secondary Missions rather than drawing them.
+// Pulls the key out of wherever it currently sits (the undrawn deck or the
+// discard pile — both are "not yet in hand" and eligible) so it can't also
+// turn up in a later random draw or reshuffle. Returns null if the key
+// isn't actually available (already active/completed, or not a real
+// mission) rather than adding a duplicate or bogus card.
+function setSecondaryCard(side, key, missionsData){
+  const inDeck = side.secondaryDeckKeys.includes(key);
+  const inDiscard = side.secondaryDiscardKeys.includes(key);
+  if(!inDeck && !inDiscard) return null;
+  const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
+  if(!mission) return null;
+  if(inDeck) side.secondaryDeckKeys = side.secondaryDeckKeys.filter(k => k !== key);
+  else side.secondaryDiscardKeys = side.secondaryDiscardKeys.filter(k => k !== key);
+  const card = buildSecondaryCard(mission, key);
   side.secondaries.push(card);
   return card;
 }
@@ -2561,8 +2596,20 @@ function buildSideTrackerHtml(side, team, label, turn){
     `).join('')}
   ` : '';
 
-  const alreadyDrawn = side.secondaryLastDrawnTurn === turn;
+  const resolution = (side.secondaryTurnResolutions || {})[turn];
   const deckExhausted = (side.secondaryDeckKeys || []).length === 0 && (side.secondaryDiscardKeys || []).length === 0;
+  // Draw and Set are the same choice either way — random or player-picked
+  // — so once one of them has resolved this turn, both are replaced by a
+  // single disabled marker naming which was used; neither shows at all
+  // otherwise, so there's no way to draw AND set (or draw/set twice) on
+  // the same turn, including after stepping back to an earlier turn with
+  // Previous Turn that already had one resolved.
+  const drawSetHtml = resolution
+    ? `<button class="btn ghost" data-draw-team="${team}" style="margin-top:10px;" disabled>✓ ${resolution === 'manual' ? 'Manually Set This Turn' : 'Drawn This Turn'}</button>`
+    : `
+      <button class="btn gold" data-draw-team="${team}" style="margin-top:10px;" ${deckExhausted ? 'disabled' : ''}>${deckExhausted ? 'No Missions Left to Draw' : '🎲 Draw 2 Secondary Missions'}</button>
+      <button class="btn ghost" data-set-team="${team}" style="margin-top:8px;" ${deckExhausted ? 'disabled' : ''}>📝 Set Secondary Missions</button>
+    `;
 
   return `
     <div class="trackerSide">
@@ -2580,7 +2627,7 @@ function buildSideTrackerHtml(side, team, label, turn){
       <div class="secListLabel">Secondary Missions (tap to view, hold for options)</div>
       ${secHtml}
       ${completedHtml}
-      <button class="btn ${alreadyDrawn ? 'ghost' : 'gold'}" data-draw-team="${team}" style="margin-top:10px;" ${alreadyDrawn || deckExhausted ? 'disabled' : ''}>${alreadyDrawn ? '✓ Drawn This Turn' : deckExhausted ? 'No Missions Left to Draw' : '🎲 Draw 2 Secondary Missions'}</button>
+      ${drawSetHtml}
     </div>
   `;
 }
@@ -2820,6 +2867,75 @@ function showSecondaryActionMenu(battleId, team, card, tracker){
   }
 }
 
+// Lets a player choose exactly which two Secondary Missions a side gets
+// this turn, instead of drawing them at random — some scenarios call for
+// setting Secondary Missions rather than drawing them. Offered alongside
+// Draw 2 Secondary Missions (see buildSideTrackerHtml/data-set-team), and
+// mutually exclusive with it for the turn, same as Draw is with itself.
+async function renderSetSecondaryMissions(battleId, team){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const tracker = ensureTracker(battle);
+  if(tracker.finished){ renderBattleTracker(battleId, 'tracker'); return; }
+  const side = tracker[team];
+  const label = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+
+  const missionsData = await loadSecondaryMissionsData();
+  if(!missionsData){
+    main.innerHTML = `<div class="noteBox">Could not load mission data — check your connection and try again.</div>`;
+    footer.style.display = 'flex';
+    footer.innerHTML = `<button class="btn ghost" data-nav-back>← Back to Tracker</button>`;
+    footer.querySelector('[data-nav-back]').onclick = () => renderBattleTracker(battleId, 'tracker');
+    return;
+  }
+
+  // Anything not already in this side's hand or already scored is fair
+  // game to set — whether it's still sitting in the undrawn deck or has
+  // been discarded, same pool a random draw could reach.
+  const availableKeys = [...(side.secondaryDeckKeys || []), ...(side.secondaryDiscardKeys || [])];
+  const rows = availableKeys.map((key, i) => {
+    const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
+    if(!mission) return '';
+    return `
+      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+        <input type="checkbox" class="setSecCheck" data-key="${escapeHtml(key)}" style="width:18px; height:18px; flex-shrink:0;"/>
+        <span class="libName" style="margin:0;">📋 ${escapeHtml(mission.displayName)}</span>
+      </label>
+    `;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="noteBox">Choose exactly 2 Secondary Missions to set for ${escapeHtml(label)} this turn, instead of drawing at random.</div>
+    ${rows || '<div class="noteBox">No Secondary Missions left to set — every one is already in hand or scored.</div>'}
+    <button class="btn primary" id="confirmSetSecBtn" style="margin-top:14px;" disabled>✓ Set These 2 Missions</button>
+    <button class="btn ghost" id="cancelSetSecBtn" data-nav-back>← Back to Tracker</button>
+  `;
+
+  const confirmBtn = document.getElementById('confirmSetSecBtn');
+  const checks = () => Array.from(main.querySelectorAll('.setSecCheck'));
+  main.querySelectorAll('.setSecCheck').forEach(cb => {
+    cb.onchange = () => {
+      const checkedCount = checks().filter(c => c.checked).length;
+      checks().forEach(c => { if(!c.checked) c.disabled = checkedCount >= 2; });
+      confirmBtn.disabled = checkedCount !== 2;
+    };
+  });
+
+  confirmBtn.onclick = async () => {
+    const chosenKeys = checks().filter(c => c.checked).map(c => c.getAttribute('data-key'));
+    if(chosenKeys.length !== 2) return;
+    await updateBattleTracker(battleId, t => {
+      const s = t[team];
+      if(s.secondaryTurnResolutions[t.turn]) return;
+      for(const key of chosenKeys) setSecondaryCard(s, key, missionsData);
+      s.secondaryTurnResolutions[t.turn] = 'manual';
+    });
+    renderBattleTracker(battleId, 'tracker');
+  };
+  document.getElementById('cancelSetSecBtn').onclick = () => renderBattleTracker(battleId, 'tracker');
+}
+
 async function renderBattleTracker(battleId, tab){
   tab = tab || 'tracker';
   clearFooter();
@@ -2914,12 +3030,18 @@ async function renderBattleTracker(battleId, tab){
         if(!missionsData) return;
         await updateBattleTracker(battleId, t => {
           const s = t[team];
-          if(s.secondaryLastDrawnTurn === t.turn) return;
+          if(s.secondaryTurnResolutions[t.turn]) return;
           drawSecondaryCard(s, missionsData);
           drawSecondaryCard(s, missionsData);
-          s.secondaryLastDrawnTurn = t.turn;
+          s.secondaryTurnResolutions[t.turn] = 'drawn';
         });
         renderBattleTracker(battleId, 'tracker');
+      };
+    });
+    main.querySelectorAll('[data-set-team]').forEach(btn => {
+      btn.onclick = () => {
+        const team = btn.getAttribute('data-set-team');
+        renderSetSecondaryMissions(battleId, team);
       };
     });
     main.querySelectorAll('.secItem[data-sec-id]:not([data-sec-completed])').forEach(el => {
