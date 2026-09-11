@@ -812,9 +812,20 @@ function parseArmyListText(text){
   // below to look up that detachment's rule/enhancements/stratagems,
   // instead of being discarded like the rest of skipPrefixRe's matches.
   const detachmentLineRe = /^detachment\s*[:\-]\s*(.+)$/i;
+  // An explicit "Faction: X" / "FACTION KEYWORD: X" line (common in
+  // BattleScribe/NewRecruit-style exports) names the list's own faction
+  // directly, often as "Broad Alignment - Specific Faction" (e.g. "Chaos -
+  // Chaos Space Marines"). Captured here — before skipPrefixRe would
+  // otherwise silently discard it — and used by runArmyListImport as a
+  // faction hint so a unit with datasheet variants across several factions
+  // (e.g. a Chaos Lord fieldable by more than one Chaos-aligned army)
+  // resolves to the variant that actually matches this list, instead of
+  // whichever variant happens to come first in the dataset.
+  const factionLineRe = /^faction(?:\s*keyword)?\s*[:\-]\s*(.+)$/i;
   const units = [];
   const leaderRelations = [];
   const detachmentHints = [];
+  let declaredFactionLine = null;
   let lastUnitIndex = -1;
   let title = null;
   // Many exporters list a unit's optional wargear as bare "Name (N pts)"
@@ -858,6 +869,12 @@ function parseArmyListText(text){
     if(detachMatch){
       const dName = detachMatch[1].trim().replace(/\s{2,}/g, ' ');
       if(dName) detachmentHints.push(dName);
+      continue;
+    }
+    const factionMatch = line.match(factionLineRe);
+    if(factionMatch){
+      const fName = factionMatch[1].trim().replace(/\s{2,}/g, ' ');
+      if(fName && !declaredFactionLine) declaredFactionLine = fName;
       continue;
     }
     if(skipPrefixRe.test(line)) continue;
@@ -909,16 +926,16 @@ function parseArmyListText(text){
       units.push(...reordered);
     }
   }
-  return { units, title, detachmentHints };
+  return { units, title, detachmentHints, declaredFactionLine };
 }
 
 function handleArmyListFile(text){
-  const { units, title, detachmentHints } = parseArmyListText(text);
+  const { units, title, detachmentHints, declaredFactionLine } = parseArmyListText(text);
   if(!units.length){
     renderArmyListParseError(`Didn't recognize any units in that list.`, text);
     return;
   }
-  renderArmyListConfirm(units, text, title, detachmentHints);
+  renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine);
 }
 
 function renderArmyListParseError(message, rawText){
@@ -943,7 +960,7 @@ function renderArmyListParseError(message, rawText){
 // selectable units — no separate name field or second button — so adding
 // it to My Collection is exactly the same one-tap action as adding any of
 // the individual units found in it.
-function renderArmyListConfirm(units, rawText, title, detachmentHints){
+function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine){
   setStatus('', 'STANDBY');
   const rows = units.map((u, i) => `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
@@ -961,7 +978,7 @@ function renderArmyListConfirm(units, rawText, title, detachmentHints){
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
     const folderName = document.getElementById('folderNameInput').value.trim();
-    runArmyListImport(selectedUnits, rawText, folderName, title, detachmentHints);
+    runArmyListImport(selectedUnits, rawText, folderName, title, detachmentHints, declaredFactionLine);
   };
   document.getElementById('cancelListImportBtn').onclick = renderHome;
 }
@@ -999,6 +1016,36 @@ function computeMajorityFaction(datasheets){
     if(c > topCount){ topFaction = f; topCount = c; }
   }
   return topFaction;
+}
+
+// Tries to identify which known faction a pasted list is actually for,
+// before any unit has been looked up — from an explicit "Faction:" /
+// "FACTION KEYWORD:" line if the exporter wrote one (captured by
+// parseArmyListText as declaredFactionLine), and otherwise from the list's
+// own title line. Both often read like "Chaos - Chaos Space Marines"
+// (broad alignment, then the specific faction) rather than a bare faction
+// name, so each candidate is tried whole and split on " - "/commas, always
+// as an EXACT match against a real faction name — never substring — so a
+// broad segment like "Chaos" alone can never falsely resolve to one of
+// several same-alignment factions (Chaos Daemons, Chaos Space Marines,
+// Chaos Knights, ...). Used as a faction hint for every per-unit datasheet
+// lookup below, so a unit with variants across more than one faction (e.g.
+// a Chaos Lord several Chaos-aligned armies can field) resolves to the
+// variant that actually matches this list, instead of whichever variant
+// happens to come first in the dataset.
+function resolveDeclaredFaction(candidates, detachmentsData){
+  if(!detachmentsData || !detachmentsData.factions) return '';
+  for(const candidate of candidates){
+    if(!candidate) continue;
+    const pieces = candidate.split(/\s+-\s+|,/).map(p => p.trim()).filter(Boolean);
+    pieces.push(candidate.trim());
+    for(const piece of pieces){
+      const key = normalizePointsName(piece);
+      const faction = key && detachmentsData.factions[key];
+      if(faction) return faction.displayName || piece;
+    }
+  }
+  return '';
 }
 
 function buildDefaultFolderName(title, units, datasheets){
@@ -1102,8 +1149,10 @@ async function findDetachmentByName(query){
   return exact.length ? exact : substring;
 }
 
-async function runArmyListImport(units, rawText, folderName, title, detachmentHints){
+async function runArmyListImport(units, rawText, folderName, title, detachmentHints, declaredFactionLine){
   setStatus('busy', 'IMPORTING');
+  const detachmentsData = await loadDetachmentsData();
+  const declaredFaction = resolveDeclaredFaction([declaredFactionLine, title], detachmentsData);
   // The folder holds reference datasheets, not a battle roster — fielding
   // the same unit more than once (e.g. two Plaguebearers units) doesn't
   // need a second identical reference page, so only the first occurrence
@@ -1121,13 +1170,13 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
   for(let i=0;i<uniqueUnits.length;i++){
     renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${uniqueUnits.length}: ${uniqueUnits[i].n}…`);
     try{
-      const d = await lookupDatasheetRaw(uniqueUnits[i].n, '', false);
+      const d = await lookupDatasheetRaw(uniqueUnits[i].n, declaredFaction, false);
       datasheets.push(d);
     }catch(err){
       failed.push(uniqueUnits[i].n);
     }
   }
-  const majorityFaction = computeMajorityFaction(datasheets);
+  const majorityFaction = declaredFaction || computeMajorityFaction(datasheets);
   renderLoading('IMPORTING LIST', 'Checking for Detachment Rules…');
   const detachmentCards = await findDetachmentsInList(rawText, majorityFaction, detachmentHints || []);
   // Every list upload creates exactly one new folder — the selected units
