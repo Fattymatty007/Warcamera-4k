@@ -940,15 +940,13 @@ async function handleArmyListFile(text){
   // saving, same as before, so an unchecked unit is never looked up for
   // nothing), so they can show up as their own checkable rows alongside
   // the units on the same confirm screen instead of being silently added
-  // later with no chance to review them. This only works when a faction
-  // can be resolved straight from the text (an explicit "Faction:" line or
-  // a title matching a known faction) — a list with neither still gets its
-  // Detachment Rules found the old way, from the real datasheets' faction,
-  // once units are actually looked up in runArmyListImport.
+  // later with no chance to review them. Checked against every faction at
+  // once (see findAnyFactionDetachmentsInList) rather than needing this
+  // list's own faction resolved first, so detection doesn't depend on the
+  // list having an explicit "Faction:" line or a title that happens to
+  // match a known faction name.
   renderLoading('SCANNING LIST', 'Checking for Detachments…');
-  const detachmentsData = await loadDetachmentsData();
-  const declaredFaction = resolveDeclaredFaction([declaredFactionLine, title], detachmentsData);
-  const detectedDetachments = declaredFaction ? await findDetachmentsInList(text, declaredFaction, detachmentHints) : [];
+  const detectedDetachments = await findAnyFactionDetachmentsInList(text, detachmentHints);
   renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine, detectedDetachments);
 }
 
@@ -1088,62 +1086,73 @@ function buildDefaultFolderName(title, units, datasheets){
   return parts.join(' · ');
 }
 
-// Finds which of a faction's known detachments this pasted list actually
-// uses — either an explicit "Detachment: X" line (captured by
-// parseArmyListText) or any line in the text that exactly matches a known
-// detachment name for that faction (catches an informal title like "Chaos -
-// Chaos Daemons - Plague Legion - [2000 pts]", where "Plague Legion" is a
-// real detachment, while never misfiring on a made-up nickname like "2
-// Bigs" that just doesn't match anything). Supports more than one match, so
-// a list naming several detachments gets a card for each.
-async function findDetachmentsInList(rawText, factionDisplayName, detachmentHints){
-  const data = await loadDetachmentsData();
-  if(!data || !data.factions) return [];
-  const factionKey = normalizePointsName(factionDisplayName);
-  const factionEntry = data.factions[factionKey];
-  if(!factionEntry) return [];
-
-  const found = new Map();
-  const tryMatch = (candidateName) => {
-    const key = normalizePointsName(candidateName);
-    const detachment = factionEntry.detachments[key];
-    if(detachment && !found.has(key)) found.set(key, detachment);
-  };
-  // A candidate is tried whole first (the common case — one detachment per
-  // line/segment), then split on commas and each piece tried too — some
-  // exporters list two detachments taken together as "Detachment A,
-  // Detachment B" within a single title segment (e.g. "Xenos - Necrons -
-  // Cursed Legion, Hand of the Dynasty" — a real two-detachment Necrons
-  // list) rather than one per line. Splitting on commas can never produce
-  // a false match — every piece still has to exactly match a real
-  // detachment name in this faction's data — so it's safe to try
-  // unconditionally even on lines that were never going to match at all.
-  const tryCandidate = (candidateName) => {
-    tryMatch(candidateName);
+// Every string worth trying as a detachment name from a pasted list: each
+// explicit "Detachment: X" hint (captured by parseArmyListText), every
+// non-blank line whole, and — since some exporters embed the detachment
+// name as one hyphen-separated segment of an informal title line (e.g.
+// "Chaos - Chaos Daemons - Plague Legion - [2000 pts]") rather than a line
+// of its own — every " - "-separated segment of that line too, with a
+// trailing points bracket stripped if the segment carries one. Every
+// candidate is also tried split on commas, since some exporters list two
+// detachments taken together as "Detachment A, Detachment B" within a
+// single segment (e.g. "Xenos - Necrons - Cursed Legion, Hand of the
+// Dynasty" — a real two-detachment Necrons list) rather than one per line.
+// Shared by findDetachmentsInList (matched against one known faction) and
+// findAnyFactionDetachmentsInList (matched against all of them) below —
+// candidates that don't happen to match anything real are harmless either
+// way, so it's safe to generate the same broad set for both.
+function candidateDetachmentNames(rawText, detachmentHints){
+  const names = [];
+  const pushCandidate = (candidateName) => {
+    names.push(candidateName);
     if(candidateName.includes(',')){
       for(const piece of candidateName.split(',')){
         const trimmed = piece.trim();
-        if(trimmed) tryMatch(trimmed);
+        if(trimmed) names.push(trimmed);
       }
     }
   };
-
-  for(const hint of detachmentHints) tryCandidate(hint);
+  for(const hint of detachmentHints) pushCandidate(hint);
   for(const rawLine of rawText.split(/\r?\n/)){
     const line = rawLine.trim();
     if(!line) continue;
-    tryCandidate(line);
-    // Some exporters embed the detachment name as one hyphen-separated
-    // segment of an informal title line (e.g. "Chaos - Chaos Daemons -
-    // Plague Legion - [2000 pts]") rather than a whole line of its own —
-    // try each segment too, stripping a trailing points bracket if the
-    // segment carries one.
+    pushCandidate(line);
     const segments = line.split(/\s+-\s+/);
     if(segments.length > 1){
       for(const seg of segments){
         const cleaned = seg.replace(/\s*[\(\[]\s*\d[\d,]*\s*(?:pts?|points)\s*[\)\]]\s*$/i, '').trim();
-        if(cleaned) tryCandidate(cleaned);
+        if(cleaned) pushCandidate(cleaned);
       }
+    }
+  }
+  return names;
+}
+
+// Finds which detachments a pasted list actually uses, checking every
+// faction's detachments at once — no resolved faction needed, so this runs
+// right after parsing (before any per-unit datasheet lookup has revealed
+// which faction the list is even for), letting a detected Detachment show
+// up as its own checkbox on the confirm screen immediately. See
+// handleArmyListFile. An exact match only (never substring) — either an
+// explicit "Detachment: X" hint (captured by parseArmyListText) or a whole
+// line/segment matching a real detachment name — so a made-up nickname like
+// "2 Bigs" that just doesn't match anything real is never mistaken for one.
+// Supports more than one match, so a list naming several detachments gets a
+// card for each. The one detachment name known to
+// collide across factions in the current dataset ("Infestation Swarm" —
+// Genestealer Cults and Tyranids both have one) resolves to whichever
+// faction is checked first — a narrow, pre-existing ambiguity, same as
+// findDetachmentByName's own multi-match search below.
+async function findAnyFactionDetachmentsInList(rawText, detachmentHints){
+  const data = await loadDetachmentsData();
+  if(!data || !data.factions) return [];
+  const found = new Map();
+  for(const candidate of candidateDetachmentNames(rawText, detachmentHints)){
+    const key = normalizePointsName(candidate);
+    if(!key || found.has(key)) continue;
+    for(const faction of Object.values(data.factions)){
+      const detachment = faction.detachments[key];
+      if(detachment){ found.set(key, detachment); break; }
     }
   }
   return [...found.values()];
@@ -1204,21 +1213,11 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
       failed.push(uniqueUnits[i].n);
     }
   }
-  // When declaredFaction resolves here, the confirm screen resolved the
-  // exact same faction from the same text and already detected and showed
-  // these as their own checkboxes — so the user's picks there (possibly
-  // none, if they unchecked every detachment) are honored as-is rather
-  // than re-detecting. Only a list with no resolvable declared faction (no
-  // "Faction:"/"FACTION KEYWORD:" line and no matching title) still needs
-  // detection done here, from the real datasheets' majority faction, since
-  // the confirm screen had nothing to detect against yet.
-  let detachmentCards;
-  if(declaredFaction){
-    detachmentCards = selectedDetachments || [];
-  } else {
-    renderLoading('IMPORTING LIST', 'Checking for Detachment Rules…');
-    detachmentCards = await findDetachmentsInList(rawText, computeMajorityFaction(datasheets), detachmentHints || []);
-  }
+  // Detachments were already detected and shown as their own checkboxes on
+  // the confirm screen (see handleArmyListFile/findAnyFactionDetachmentsInList)
+  // — the user's picks there (possibly none, if every one got unchecked)
+  // are honored as-is rather than re-detecting.
+  const detachmentCards = selectedDetachments || [];
   // Every list upload creates exactly one new folder — the selected units
   // (freshly looked up, one reference page per unique unit), the full
   // pasted text, and a Detachment Rules card for each detachment the list
