@@ -1452,14 +1452,35 @@ function normalizeMissionKey(name){
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Only the successful result gets cached — a transient failure (a flaky
+// mobile connection dropping this one fetch) used to poison the cache with
+// a resolved-to-null promise for the rest of the session, silently
+// breaking every draw/redraw from then on with no way to recover short of
+// a full reload. A failed attempt now just tries again next time it's
+// needed instead.
 let secondaryMissionsDataPromise = null;
 function loadSecondaryMissionsData(){
-  if(!secondaryMissionsDataPromise){
-    secondaryMissionsDataPromise = fetch('/secondary-missions-data.json')
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  }
-  return secondaryMissionsDataPromise;
+  if(secondaryMissionsDataPromise) return secondaryMissionsDataPromise;
+  const attempt = fetch('/secondary-missions-data.json')
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null);
+  secondaryMissionsDataPromise = attempt;
+  attempt.then(result => { if(!result) secondaryMissionsDataPromise = null; });
+  return attempt;
+}
+
+// Re-hydrates a card's flavor/scoring/action from the current mission data
+// whenever they're missing — a safety net for a stored card ending up
+// incomplete by whatever means (a failed fetch caught mid-draw, corrupted
+// storage, anything else not yet understood), so the achieve screen always
+// has something to show rather than silently rendering a near-empty card.
+async function withFreshSecondaryData(card){
+  if(card.flavor && card.scoring && card.scoring.length) return card;
+  const missionsData = await loadSecondaryMissionsData();
+  if(!missionsData) return card;
+  const fresh = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === card.key);
+  if(!fresh) return card;
+  return { ...card, flavor: fresh.flavor, intro: fresh.intro, scoring: fresh.scoring, action: fresh.action };
 }
 
 function shuffled(arr){
@@ -2554,9 +2575,10 @@ async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   const side = team === 'my' ? tracker.my : tracker.opponent;
   const activeCard = (side.secondaries || []).find(s => s.id === secId);
   const completedCard = (side.completedSecondaries || []).find(s => s.id === secId);
-  const card = activeCard || completedCard;
+  let card = activeCard || completedCard;
   if(!card){ renderBattleTracker(battleId, returnTab || 'tracker'); return; }
   const isCompleted = !activeCard;
+  card = await withFreshSecondaryData(card);
 
   main.innerHTML = `
     ${buildSecondaryScoringHtml(card)}
