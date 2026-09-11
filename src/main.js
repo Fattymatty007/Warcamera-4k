@@ -393,6 +393,7 @@ function buildParsedFromOfficialDatasheet(official, isLight){
   if(isLight) return base;
   return Object.assign(base, {
     unit_composition: official.unit_composition,
+    transport: official.transport,
     abilities: official.abilities,
     keywords: official.keywords,
     faction_keywords: official.faction_keywords,
@@ -3536,6 +3537,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
  "points": "e.g. 80 pts (5 models) — your best-known value, plain text, no annotation",
  "points_uncertain": false,
  "unit_composition": "short plain text",
+ "transport": "if this unit has the TRANSPORT keyword, its transport capacity and which models can embark, paraphrased short plain text — otherwise null",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}] (every weapon option available to the unit — see instruction above, not just a default loadout),
  "abilities": [{"name":"...", "description":"paraphrased in your own words, one to two sentences, do not quote official rule text verbatim"}],
@@ -3679,6 +3681,8 @@ function buildDatasheetSheetHtml(d){
       ${buildStatGridHtml(d.stats)}
 
       ${d.unit_composition ? `<div class="section"><div class="sectionTitle">Unit Composition</div><div class="abilityDesc">${escapeHtml(d.unit_composition)}</div></div>` : ''}
+
+      ${d.transport ? `<div class="section"><div class="sectionTitle">Transport Capacity</div><div class="abilityDesc">${escapeHtml(d.transport)}</div></div>` : ''}
 
       ${buildWeaponsTableHtml(d.weapons)}
 

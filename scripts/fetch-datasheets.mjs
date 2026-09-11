@@ -136,6 +136,11 @@ async function main() {
       displayName: stripHtml(ds.name),
       faction: factionById.get(ds.faction_id) || '',
       unit_composition: unitComposition,
+      // Transport capacity + which models can embark, straight from
+      // Datasheets.csv's own "transport" column — blank for the vast
+      // majority of units (no TRANSPORT keyword), a real value like "This
+      // model has a transport capacity of 12 ..." for the ones that do.
+      transport: stripHtml(ds.transport) || null,
       stats: {
         movement: stripHtml(primary.M),
         toughness: stripHtml(primary.T),
