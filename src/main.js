@@ -747,13 +747,13 @@ function renderPasteListScreen(){
   main.innerHTML = `
     <div class="noteBox">Paste a plain-text export from your army builder app below.</div>
     <textarea id="pasteListInput" placeholder="Please paste Text List here."></textarea>
-    <button class="btn gold" id="parsePastedListBtn" style="margin-top:10px;">📋 Find Units in This List</button>
+    <button class="btn gold" id="parsePastedListBtn" style="margin-top:10px;">📋 Detect Units & Detachments</button>
     <button class="btn ghost" id="pasteListCancelBtn" data-nav-back>← Cancel</button>
   `;
   document.getElementById('parsePastedListBtn').onclick = () => {
     const text = document.getElementById('pasteListInput').value;
     if(!text.trim()) return;
-    handleArmyListFile(text, '');
+    handleArmyListFile(text);
   };
   document.getElementById('pasteListCancelBtn').onclick = renderHome;
 }
@@ -929,13 +929,27 @@ function parseArmyListText(text){
   return { units, title, detachmentHints, declaredFactionLine };
 }
 
-function handleArmyListFile(text){
+async function handleArmyListFile(text){
   const { units, title, detachmentHints, declaredFactionLine } = parseArmyListText(text);
   if(!units.length){
     renderArmyListParseError(`Didn't recognize any units in that list.`, text);
     return;
   }
-  renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine);
+  // Detachments are detected up front, from the list's text alone (no
+  // per-unit datasheet lookups yet — those stay deferred to actually
+  // saving, same as before, so an unchecked unit is never looked up for
+  // nothing), so they can show up as their own checkable rows alongside
+  // the units on the same confirm screen instead of being silently added
+  // later with no chance to review them. This only works when a faction
+  // can be resolved straight from the text (an explicit "Faction:" line or
+  // a title matching a known faction) — a list with neither still gets its
+  // Detachment Rules found the old way, from the real datasheets' faction,
+  // once units are actually looked up in runArmyListImport.
+  renderLoading('SCANNING LIST', 'Checking for Detachments…');
+  const detachmentsData = await loadDetachmentsData();
+  const declaredFaction = resolveDeclaredFaction([declaredFactionLine, title], detachmentsData);
+  const detectedDetachments = declaredFaction ? await findDetachmentsInList(text, declaredFaction, detachmentHints) : [];
+  renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine, detectedDetachments);
 }
 
 function renderArmyListParseError(message, rawText){
@@ -960,25 +974,39 @@ function renderArmyListParseError(message, rawText){
 // selectable units — no separate name field or second button — so adding
 // it to My Collection is exactly the same one-tap action as adding any of
 // the individual units found in it.
-function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine){
+function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine, detectedDetachments){
   setStatus('', 'STANDBY');
+  const detachments = detectedDetachments || [];
+  // Detachments are listed above the units, each as its own checkbox — same
+  // "found it, uncheck if wrong" pattern as a unit row, just styled like the
+  // Detachment Rules cards seen elsewhere (📜 ... Rules) so it's clear these
+  // are detachment-level rules, not another unit.
+  const detachRows = detachments.map((d, i) => `
+    <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+      <input type="checkbox" class="listDetachCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
+      <span class="libName" style="margin:0;">📜 ${escapeHtml(d.displayName || 'Detachment')} Rules</span>
+    </label>
+  `).join('');
   const rows = units.map((u, i) => `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" class="listUnitCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
       <span class="libName" style="margin:0;">${escapeHtml(u.n)}</span>
     </label>
   `).join('');
+  const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text and any Detachment Rules cards recognized), ready to add to a battle in one action later.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
+    ${detachRows}
     ${rows}
     <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Save to a New Folder</button>
     <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
+    const selectedDetachments = detachments.filter((d, i) => document.querySelector(`.listDetachCheck[data-idx="${i}"]`).checked);
     const folderName = document.getElementById('folderNameInput').value.trim();
-    runArmyListImport(selectedUnits, rawText, folderName, title, detachmentHints, declaredFactionLine);
+    runArmyListImport(selectedUnits, rawText, folderName, title, detachmentHints, declaredFactionLine, selectedDetachments);
   };
   document.getElementById('cancelListImportBtn').onclick = renderHome;
 }
@@ -1149,7 +1177,7 @@ async function findDetachmentByName(query){
   return exact.length ? exact : substring;
 }
 
-async function runArmyListImport(units, rawText, folderName, title, detachmentHints, declaredFactionLine){
+async function runArmyListImport(units, rawText, folderName, title, detachmentHints, declaredFactionLine, selectedDetachments){
   setStatus('busy', 'IMPORTING');
   const detachmentsData = await loadDetachmentsData();
   const declaredFaction = resolveDeclaredFaction([declaredFactionLine, title], detachmentsData);
@@ -1176,9 +1204,21 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
       failed.push(uniqueUnits[i].n);
     }
   }
-  const majorityFaction = declaredFaction || computeMajorityFaction(datasheets);
-  renderLoading('IMPORTING LIST', 'Checking for Detachment Rules…');
-  const detachmentCards = await findDetachmentsInList(rawText, majorityFaction, detachmentHints || []);
+  // When declaredFaction resolves here, the confirm screen resolved the
+  // exact same faction from the same text and already detected and showed
+  // these as their own checkboxes — so the user's picks there (possibly
+  // none, if they unchecked every detachment) are honored as-is rather
+  // than re-detecting. Only a list with no resolvable declared faction (no
+  // "Faction:"/"FACTION KEYWORD:" line and no matching title) still needs
+  // detection done here, from the real datasheets' majority faction, since
+  // the confirm screen had nothing to detect against yet.
+  let detachmentCards;
+  if(declaredFaction){
+    detachmentCards = selectedDetachments || [];
+  } else {
+    renderLoading('IMPORTING LIST', 'Checking for Detachment Rules…');
+    detachmentCards = await findDetachmentsInList(rawText, computeMajorityFaction(datasheets), detachmentHints || []);
+  }
   // Every list upload creates exactly one new folder — the selected units
   // (freshly looked up, one reference page per unique unit), the full
   // pasted text, and a Detachment Rules card for each detachment the list
