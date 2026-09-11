@@ -491,13 +491,15 @@ function renderHome(){
   currentBattleContext = null;
   main.innerHTML = `
     ${canInstall() ? '<button class="btn gold" id="installBtn">⬇ Install App</button>' : ''}
-    <button class="btn primary" id="scanBtn">📷 Scan Miniature</button>
-    <button class="btn ghost" id="uploadPhotoBtn" style="margin-top:-6px;">🖼 Upload a Photo Instead</button>
-    <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
-    <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
     <input type="text" id="manualInput" placeholder="Type a unit or Detachment name" />
     <button class="btn gold" id="manualBtn">🔎 Look Up Datasheet</button>
+    <div style="display:flex; gap:10px;">
+      <button class="btn primary" id="scanBtn" style="flex:1;">📷 Scan Miniature</button>
+      <button class="btn ghost" id="uploadPhotoBtn" style="flex:1;">🖼 Upload a Photo Instead</button>
+    </div>
+    <input type="file" id="uploadPhotoInput" accept="image/*" style="display:none;" />
     <button class="btn gold" id="battlesBtn">⚔️ Battles</button>
+    <button class="btn gold" id="uploadListBtn">📋 Paste an Army List</button>
     <div class="divider">library</div>
     <button class="btn ghost" id="collectionBtn">📚 My Collection</button>
     <button class="btn ghost" id="customLibBtn">🧩 Custom Model Library</button>
