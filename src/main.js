@@ -1034,12 +1034,30 @@ async function findDetachmentsInList(rawText, factionDisplayName, detachmentHint
     const detachment = factionEntry.detachments[key];
     if(detachment && !found.has(key)) found.set(key, detachment);
   };
+  // A candidate is tried whole first (the common case — one detachment per
+  // line/segment), then split on commas and each piece tried too — some
+  // exporters list two detachments taken together as "Detachment A,
+  // Detachment B" within a single title segment (e.g. "Xenos - Necrons -
+  // Cursed Legion, Hand of the Dynasty" — a real two-detachment Necrons
+  // list) rather than one per line. Splitting on commas can never produce
+  // a false match — every piece still has to exactly match a real
+  // detachment name in this faction's data — so it's safe to try
+  // unconditionally even on lines that were never going to match at all.
+  const tryCandidate = (candidateName) => {
+    tryMatch(candidateName);
+    if(candidateName.includes(',')){
+      for(const piece of candidateName.split(',')){
+        const trimmed = piece.trim();
+        if(trimmed) tryMatch(trimmed);
+      }
+    }
+  };
 
-  for(const hint of detachmentHints) tryMatch(hint);
+  for(const hint of detachmentHints) tryCandidate(hint);
   for(const rawLine of rawText.split(/\r?\n/)){
     const line = rawLine.trim();
     if(!line) continue;
-    tryMatch(line);
+    tryCandidate(line);
     // Some exporters embed the detachment name as one hyphen-separated
     // segment of an informal title line (e.g. "Chaos - Chaos Daemons -
     // Plague Legion - [2000 pts]") rather than a whole line of its own —
@@ -1049,7 +1067,7 @@ async function findDetachmentsInList(rawText, factionDisplayName, detachmentHint
     if(segments.length > 1){
       for(const seg of segments){
         const cleaned = seg.replace(/\s*[\(\[]\s*\d[\d,]*\s*(?:pts?|points)\s*[\)\]]\s*$/i, '').trim();
-        if(cleaned) tryMatch(cleaned);
+        if(cleaned) tryCandidate(cleaned);
       }
     }
   }
