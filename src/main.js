@@ -905,7 +905,11 @@ function parseArmyListText(text){
   // An explicit "Detachment: X" line names the detachment directly — used
   // below to look up that detachment's rule/enhancements/stratagems,
   // instead of being discarded like the rest of skipPrefixRe's matches.
-  const detachmentLineRe = /^detachment\s*[:\-]\s*(.+)$/i;
+  // Some exporters (e.g. NewRecruit's plain-text export) prefix every line
+  // of the header block with a decorative "+ " — tolerated here as an
+  // optional leading bullet, same set skipPrefixRe already treats as
+  // decoration elsewhere, so "+ DETACHMENT: X" is still recognized.
+  const detachmentLineRe = /^[+•\-*▪◦›»]*\s*detachment\s*[:\-]\s*(.+)$/i;
   // An explicit "Faction: X" / "FACTION KEYWORD: X" line (common in
   // BattleScribe/NewRecruit-style exports) names the list's own faction
   // directly, often as "Broad Alignment - Specific Faction" (e.g. "Chaos -
@@ -915,7 +919,7 @@ function parseArmyListText(text){
   // (e.g. a Chaos Lord fieldable by more than one Chaos-aligned army)
   // resolves to the variant that actually matches this list, instead of
   // whichever variant happens to come first in the dataset.
-  const factionLineRe = /^faction(?:\s*keyword)?\s*[:\-]\s*(.+)$/i;
+  const factionLineRe = /^[+•\-*▪◦›»]*\s*faction(?:\s*keyword)?\s*[:\-]\s*(.+)$/i;
   const units = [];
   const leaderRelations = [];
   const detachmentHints = [];
@@ -1190,7 +1194,11 @@ function buildDefaultFolderName(title, units, datasheets){
 // candidate is also tried split on commas, since some exporters list two
 // detachments taken together as "Detachment A, Detachment B" within a
 // single segment (e.g. "Xenos - Necrons - Cursed Legion, Hand of the
-// Dynasty" — a real two-detachment Necrons list) rather than one per line.
+// Dynasty" — a real two-detachment Necrons list) rather than one per line —
+// and with any trailing parenthetical stripped, since some exporters
+// follow a detachment name with an enhancement-set/sub-choice in
+// parentheses that isn't part of the name itself (e.g. "Hunting Warpack
+// (Marked Prey)" for a real detachment just named "Hunting Warpack").
 // Shared by findDetachmentsInList (matched against one known faction) and
 // findAnyFactionDetachmentsInList (matched against all of them) below —
 // candidates that don't happen to match anything real are harmless either
@@ -1199,8 +1207,11 @@ function candidateDetachmentNames(rawText, detachmentHints){
   const names = [];
   const pushCandidate = (candidateName) => {
     names.push(candidateName);
-    if(candidateName.includes(',')){
-      for(const piece of candidateName.split(',')){
+    const noParen = candidateName.replace(/\s*\([^()]*\)\s*$/, '').trim();
+    if(noParen && noParen !== candidateName) names.push(noParen);
+    for(const variant of [candidateName, noParen]){
+      if(!variant.includes(',')) continue;
+      for(const piece of variant.split(',')){
         const trimmed = piece.trim();
         if(trimmed) names.push(trimmed);
       }
