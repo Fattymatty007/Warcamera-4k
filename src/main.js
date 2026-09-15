@@ -55,6 +55,83 @@ function attachLongPress(el, onLongPress, duration = 550){
   return () => fired;
 }
 
+// A "slide to delete" confirm bar shown before anything actually gets
+// deleted — dragging the thumb the full length of the track (not just
+// tapping it) takes a little deliberate effort, so a small Remove button
+// brushed by accident in a tightly packed list can't silently delete
+// something. Releasing short of the end snaps the thumb back with nothing
+// deleted; onConfirm only ever fires once the thumb reaches the far end.
+// message is optional (omit for a plain "remove this?" with no extra note).
+function confirmSlideDelete(title, message, onConfirm){
+  const overlay = document.createElement('div');
+  overlay.className = 'modalOverlay';
+  overlay.innerHTML = `
+    <div class="modalCard">
+      <div class="modalTitle">${escapeHtml(title)}</div>
+      ${message ? `<div class="modalBody">${escapeHtml(message)}</div>` : ''}
+      <div class="slideDeleteTrack" id="slideDeleteTrack">
+        <div class="slideDeleteFill" id="slideDeleteFill"></div>
+        <div class="slideDeleteLabel" id="slideDeleteLabel">Slide to delete →</div>
+        <div class="slideDeleteThumb" id="slideDeleteThumb">🗑</div>
+      </div>
+      <button class="btn ghost" id="slideDeleteCancelBtn" style="margin-top:10px;">✕ Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const track = document.getElementById('slideDeleteTrack');
+  const thumb = document.getElementById('slideDeleteThumb');
+  const fill = document.getElementById('slideDeleteFill');
+  const label = document.getElementById('slideDeleteLabel');
+  let startClientX = 0, current = 0, maxX = 0, dragging = false, settled = false;
+
+  const apply = (x) => {
+    current = Math.max(0, Math.min(maxX, x));
+    thumb.style.transform = `translateX(${current}px)`;
+    fill.style.width = `${current + thumb.offsetWidth}px`;
+    label.style.opacity = String(maxX > 0 ? Math.max(0, 1 - current / maxX) : 1);
+  };
+  const onDown = (clientX) => {
+    if(settled) return;
+    dragging = true;
+    maxX = track.clientWidth - thumb.offsetWidth - 4;
+    startClientX = clientX - current;
+  };
+  const onMove = (clientX) => { if(dragging && !settled) apply(clientX - startClientX); };
+  const onUp = () => {
+    if(!dragging || settled) return;
+    dragging = false;
+    if(maxX > 0 && current >= maxX - 2){
+      settled = true;
+      apply(maxX);
+      cleanup();
+      onConfirm();
+    } else {
+      apply(0);
+    }
+  };
+  const touchStartHandler = (e) => onDown(e.touches[0].clientX);
+  const touchMoveHandler = (e) => onMove(e.touches[0].clientX);
+  const mouseDownHandler = (e) => { e.preventDefault(); onDown(e.clientX); };
+  const mouseMoveHandler = (e) => onMove(e.clientX);
+
+  thumb.addEventListener('touchstart', touchStartHandler, { passive: true });
+  thumb.addEventListener('touchmove', touchMoveHandler, { passive: true });
+  thumb.addEventListener('touchend', onUp);
+  thumb.addEventListener('touchcancel', onUp);
+  thumb.addEventListener('mousedown', mouseDownHandler);
+  window.addEventListener('mousemove', mouseMoveHandler);
+  window.addEventListener('mouseup', onUp);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) cleanup(); });
+  document.getElementById('slideDeleteCancelBtn').onclick = () => cleanup();
+
+  function cleanup(){
+    window.removeEventListener('mousemove', mouseMoveHandler);
+    window.removeEventListener('mouseup', onUp);
+    overlay.remove();
+  }
+}
+
 // Two model tiers, picked per call via the X-Gemini-Model header (see
 // api.js / worker/src/index.js) rather than a fixed worker-side model.
 // Vision identification stays on the stronger default model — it already
@@ -2015,7 +2092,7 @@ function buildTeamHtml(units, team, activeDetachmentId){
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
         <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
         <div class="libMeta">Text document</div>
-        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
     if(u.isDetachment){
@@ -2024,7 +2101,7 @@ function buildTeamHtml(units, team, activeDetachmentId){
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
         <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules${activeBadge}</div>
         <div class="libMeta">${escapeHtml(u.card.faction||'')} · Detachment Rules</div>
-        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
     }
@@ -2032,7 +2109,7 @@ function buildTeamHtml(units, team, activeDetachmentId){
       <div class="libCard" data-unit="${u.id}" data-team="${team}">
         <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
         <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-remove="${u.id}" data-remove-team="${team}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
   }).join('');
@@ -2064,10 +2141,15 @@ function wireTeamCards(battle, battleId, team, onUnitTap, onAfterRemove){
     });
   });
   main.querySelectorAll(`[data-remove-team="${team}"]`).forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      await removeUnitFromBattle(battleId, team, btn.getAttribute('data-remove'));
-      onAfterRemove();
+      const id = btn.getAttribute('data-remove');
+      const unit = units.find(u => u.id === id);
+      const name = unit ? (unit.isTextList ? (unit.listName || 'this imported list') : unit.isDetachment ? `${unit.card.displayName || 'Detachment'} Rules` : (unit.unit_name || 'this unit')) : 'this';
+      confirmSlideDelete(`Remove ${name}?`, 'This removes it from the roster — it stays saved in My Collection if you saved it there separately.', async () => {
+        await removeUnitFromBattle(battleId, team, id);
+        onAfterRemove();
+      });
     });
   });
 }
@@ -3147,28 +3229,28 @@ async function renderCollectionList(){
       <div class="libCard" data-id="${u.id}">
         <div class="libName">🗂 ${escapeHtml(u.folderName || 'Army List Units')}</div>
         <div class="libMeta">${u.units.length} unit${u.units.length===1?'':'s'}</div>
-        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
     if(u.isTextList) return `
       <div class="libCard" data-id="${u.id}">
         <div class="libName">📋 ${escapeHtml(u.listName || 'Imported List')}</div>
         <div class="libMeta">Text document</div>
-        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
     if(u.isDetachment) return `
       <div class="libCard" data-id="${u.id}">
         <div class="libName">📜 ${escapeHtml(u.card.displayName || 'Detachment')} Rules</div>
         <div class="libMeta">${escapeHtml(u.card.faction||'')} · Detachment Rules</div>
-        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
     return `
       <div class="libCard" data-id="${u.id}">
         <div class="libName">${escapeHtml(u.unit_name||'Unknown Unit')}</div>
         <div class="libMeta">${escapeHtml(u.faction||'')}${u.points ? ' · '+escapeHtml(u.points) : ''}</div>
-        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px;">🗑 Remove</button>
+        <button class="btn ghost" data-del="${u.id}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
       </div>
     `;
   }).join('');
@@ -3197,10 +3279,16 @@ async function renderCollectionList(){
     });
   });
   main.querySelectorAll('[data-del]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      await removeUnitFromCollection(btn.getAttribute('data-del'));
-      renderCollectionList();
+      const id = btn.getAttribute('data-del');
+      const u = list.find(x => x.id === id);
+      const name = u ? (u.isFolder ? (u.folderName || 'this folder') : u.isTextList ? (u.listName || 'this list') : u.isDetachment ? `${u.card.displayName || 'Detachment'} Rules` : (u.unit_name || 'this unit')) : 'this';
+      const message = u && u.isFolder ? 'This deletes the whole folder and everything saved inside it.' : null;
+      confirmSlideDelete(`Remove ${name}?`, message, async () => {
+        await removeUnitFromCollection(id);
+        renderCollectionList();
+      });
     });
   });
 
@@ -3403,7 +3491,7 @@ async function renderCustomLibrary(){
       <img class="libThumb" src="${m.thumb}" alt="${escapeHtml(m.label)}"/>
       <div class="libName">${escapeHtml(m.label)}</div>
       <div class="libMeta">${escapeHtml(m.unitName)}${m.faction ? ' · '+escapeHtml(m.faction) : ''}</div>
-      <button class="btn ghost" data-del="${m.id}" style="margin-top:8px;">🗑 Remove</button>
+      <button class="btn ghost" data-del="${m.id}" style="margin-top:8px; padding:8px 10px; font-size:10px;">🗑 Remove</button>
     </div>
   `).join('');
 
@@ -3423,10 +3511,14 @@ async function renderCustomLibrary(){
     }
   });
   main.querySelectorAll('[data-del]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      await deleteCustomModel(btn.getAttribute('data-del'));
-      renderCustomLibrary();
+      const id = btn.getAttribute('data-del');
+      const m = list.find(x => x.id === id);
+      confirmSlideDelete(`Remove ${m ? m.label || 'this custom model' : 'this'}?`, null, async () => {
+        await deleteCustomModel(id);
+        renderCustomLibrary();
+      });
     });
   });
 

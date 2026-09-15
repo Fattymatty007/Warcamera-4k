@@ -396,3 +396,35 @@ footer .btn{flex:1;}
   font-size:18px; letter-spacing:2px; color:var(--parchment); margin-bottom:10px;
 }
 .modalBody{font-size:12px; color:var(--muted); line-height:1.6;}
+
+/* Slide-to-delete confirm bar — see confirmSlideDelete() in main.js */
+.slideDeleteTrack{
+  position:relative;
+  height:52px;
+  margin-top:16px;
+  background:var(--panel);
+  border:1px solid var(--iron);
+  overflow:hidden;
+  user-select:none;
+}
+.slideDeleteFill{
+  position:absolute; top:0; left:0; height:100%; width:0;
+  background:linear-gradient(180deg, var(--blood) 0%, #4a0f0f 100%);
+  pointer-events:none;
+}
+.slideDeleteLabel{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted);
+  pointer-events:none;
+}
+.slideDeleteThumb{
+  position:absolute; top:2px; left:2px;
+  width:48px; height:46px;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--blood-bright);
+  border:1px solid var(--brass);
+  font-size:18px;
+  cursor:grab;
+  touch-action:none;
+}
