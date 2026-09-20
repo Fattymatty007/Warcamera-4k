@@ -1291,6 +1291,25 @@ async function findDetachmentByName(query){
   return exact.length ? exact : substring;
 }
 
+// Picks one card for a caller that already knows which faction it wants
+// (the QR roster import, which carries each detachment's faction in the
+// payload) — same hint-preference pattern as lookupOfficialDatasheet:
+// prefers a match whose faction fits the hint, otherwise just the first
+// match findDetachmentByName found.
+async function lookupDetachmentCard(name, factionHint){
+  const matches = await findDetachmentByName(name);
+  if(!matches.length) return null;
+  const hint = (factionHint || '').toLowerCase().trim();
+  if(hint){
+    const match = matches.find(c => {
+      const cf = (c.faction || '').toLowerCase();
+      return cf && (cf.includes(hint) || hint.includes(cf));
+    });
+    if(match) return match;
+  }
+  return matches[0];
+}
+
 async function runArmyListImport(units, rawText, folderName, title, detachmentHints, declaredFactionLine, selectedDetachments){
   setStatus('busy', 'IMPORTING');
   const detachmentsData = await loadDetachmentsData();
@@ -2468,25 +2487,34 @@ async function renderBattleCollectionPicker(battleId, team){
 }
 
 // ---------- ROSTER SHARING VIA QR CODE ----------
-// The QR payload only carries unit name + faction, not full datasheets —
-// a QR code has a hard capacity limit (a few KB at most), and a battle's
-// worth of full stat blocks/abilities text can easily exceed that, while
-// a name+faction pair per unit stays tiny even for a large army. The
-// importing side re-looks up each unit (same as typing it into Search by
-// Name), so this trades a few automatic Gemini calls for never being able
-// to fail on QR size or on stale embedded stats.
+// The QR payload only carries unit/detachment name + faction, not full
+// datasheets/rule text — a QR code has a hard capacity limit (a few KB at
+// most), and a battle's worth of full stat blocks/abilities text can
+// easily exceed that, while a name+faction pair per entry stays tiny even
+// for a large army. The importing side re-looks up each one (same as
+// typing it into Search by Name), so this trades a few automatic Gemini
+// calls (units only — Detachment Rules are always the static, no-Gemini
+// dataset) for never being able to fail on QR size or on stale embedded
+// stats.
 async function renderShareRosterQr(battleId, team){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
-  // The QR payload is a name+faction pair per unit, re-looked-up on
-  // import — text-list and Detachment Rules entries have neither, so
-  // they're excluded the same way (they'd otherwise show up as blank
-  // {n: undefined} junk in the payload).
-  const units = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => !u.isTextList && !u.isDetachment);
+  const allUnits = team === 'my' ? battle.myUnits : battle.opponentUnits;
+  // Text-list entries have neither a name nor a faction, so they're
+  // excluded (they'd otherwise show up as blank {n: undefined} junk in the
+  // payload) — Detachment Rules cards DO carry both and are included in
+  // their own d[] array, re-looked-up by name+faction on import the same
+  // way a unit is.
+  const units = allUnits.filter(u => !u.isTextList && !u.isDetachment);
+  const detachments = allUnits.filter(u => u.isDetachment);
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
-  const payload = JSON.stringify({ v: 1, u: units.map(u => ({ n: u.unit_name, f: u.faction || '' })) });
+  const payload = JSON.stringify({
+    v: 1,
+    u: units.map(u => ({ n: u.unit_name, f: u.faction || '' })),
+    d: detachments.map(u => ({ n: u.card.displayName, f: u.card.faction || '' })),
+  });
 
   let qrDataUrl;
   try{
@@ -2503,8 +2531,9 @@ async function renderShareRosterQr(battleId, team){
     return;
   }
 
+  const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
   main.innerHTML = `
-    <div class="noteBox">Have your opponent open <strong>Battles → Add Units → Import Roster via QR</strong> and point their camera at this code to pull in ${units.length} unit${units.length===1?'':'s'} from <strong>${escapeHtml(teamLabel)}</strong> — no rescanning needed on their end. Each unit gets freshly looked up on import, same as searching it by name.</div>
+    <div class="noteBox">Have your opponent open <strong>Battles → Add Units → Import Roster via QR</strong> and point their camera at this code to pull in ${units.length} unit${units.length===1?'':'s'}${detachNote} from <strong>${escapeHtml(teamLabel)}</strong> — no rescanning needed on their end. Each one gets freshly looked up on import, same as searching it by name.</div>
     <div style="display:flex; justify-content:center; padding:16px 0;">
       <img src="${qrDataUrl}" alt="Roster QR code" style="width:100%; max-width:280px; border-radius:4px;"/>
     </div>
@@ -2612,15 +2641,24 @@ function handleScannedRosterPayload(battleId, team, raw){
     document.getElementById('qrCancelBtn2').onclick = () => renderBattleScanEntry(battleId, team);
     return;
   }
-  renderImportConfirm(battleId, team, parsed.u);
+  // d[] is missing entirely on a roster QR generated before Detachment
+  // Rules were included in the payload — treat that the same as "none",
+  // not an error.
+  renderImportConfirm(battleId, team, parsed.u, Array.isArray(parsed.d) ? parsed.d : []);
 }
 
-async function renderImportConfirm(battleId, team, units){
+async function renderImportConfirm(battleId, team, units, detachments){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
+  const detachCards = detachments.map(d => `
+    <div class="libCard">
+      <div class="libName">📜 ${escapeHtml(d.n || 'Unknown Detachment')} Rules</div>
+      ${d.f ? `<div class="libMeta">${escapeHtml(d.f)}</div>` : ''}
+    </div>
+  `).join('');
   const cards = units.map(u => `
     <div class="libCard">
       <div class="libName">${escapeHtml(u.n || 'Unknown Unit')}</div>
@@ -2628,17 +2666,20 @@ async function renderImportConfirm(battleId, team, units){
     </div>
   `).join('');
 
+  const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
+  const totalCount = units.length + detachments.length;
   main.innerHTML = `
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}. Import into <strong>${escapeHtml(teamLabel)}</strong>? Each one gets freshly looked up, same as a name search.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote}. Import into <strong>${escapeHtml(teamLabel)}</strong>? Each one gets freshly looked up, same as a name search.</div>
+    ${detachCards}
     ${cards}
-    <button class="btn primary" id="confirmImportBtn" style="margin-top:14px;">✓ Import ${units.length} Unit${units.length===1?'':'s'}</button>
+    <button class="btn primary" id="confirmImportBtn" style="margin-top:14px;">✓ Import ${totalCount} Item${totalCount===1?'':'s'}</button>
     <button class="btn ghost" id="cancelImportBtn" data-nav-back>✕ Cancel</button>
   `;
-  document.getElementById('confirmImportBtn').onclick = () => runRosterImport(battleId, team, units);
+  document.getElementById('confirmImportBtn').onclick = () => runRosterImport(battleId, team, units, detachments);
   document.getElementById('cancelImportBtn').onclick = () => renderBattleScanEntry(battleId, team);
 }
 
-async function runRosterImport(battleId, team, units){
+async function runRosterImport(battleId, team, units, detachments){
   setStatus('busy', 'IMPORTING');
   let succeeded = 0;
   const failed = [];
@@ -2652,13 +2693,23 @@ async function runRosterImport(battleId, team, units){
       failed.push(units[i].n);
     }
   }
+  for(let i=0;i<(detachments||[]).length;i++){
+    renderLoading('IMPORTING ROSTER', `Looking up Detachment ${i+1} of ${detachments.length}: ${detachments[i].n}…`);
+    const card = await lookupDetachmentCard(detachments[i].n, detachments[i].f || '');
+    if(card){
+      await addUnitToBattle(battleId, team, { isDetachment: true, card });
+      succeeded++;
+    } else {
+      failed.push(detachments[i].n);
+    }
+  }
   setStatus('', 'LINK ESTABLISHED');
   renderImportSummary(battleId, succeeded, failed);
 }
 
 function renderImportSummary(battleId, succeeded, failed){
   main.innerHTML = `
-    <div class="noteBox">Imported ${succeeded} unit${succeeded===1?'':'s'} into the battle.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
+    <div class="noteBox">Imported ${succeeded} item${succeeded===1?'':'s'} into the battle.${failed.length ? ' Couldn\'t confidently look up: '+failed.map(n=>escapeHtml(n)).join(', ')+' — try adding those individually.' : ''}</div>
     <button class="btn primary" id="importDoneBtn" data-nav-back>⚔️ View Battle</button>
   `;
   document.getElementById('importDoneBtn').onclick = () => renderBattleDetail(battleId);
