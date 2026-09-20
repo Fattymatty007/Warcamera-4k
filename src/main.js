@@ -3446,10 +3446,19 @@ function buildDetachmentRulesHtml(card){
     </div>
   `).join('') || `<div class="loadSub">No enhancements listed.</div>`;
 
+  // Wahapedia's export also carries separate "phase"/"turn" columns
+  // meant to summarize a stratagem's timing, but a spot-check across the
+  // whole dataset found 20 stratagems (across 9 factions) where those
+  // columns don't match the stratagem's own "WHEN:" text — most likely
+  // that text getting corrected via errata without the separate summary
+  // columns being updated to match. Rather than show a summary line that
+  // can silently contradict the real rules text sitting right below it,
+  // the WHEN/TARGET/EFFECT text itself — the actual official wording,
+  // always self-consistent since it's a single field — is the only
+  // timing shown.
   const stratagemsHtml = (card.stratagems||[]).map(s => `
     <div class="abilityItem">
       <div class="abilityName">${escapeHtml(s.name||'')}${s.cpCost ? ' — '+escapeHtml(s.cpCost)+' CP' : ''}</div>
-      <div class="libMeta" style="margin:2px 0 4px;">${escapeHtml([s.phase, s.turn].filter(Boolean).join(' · '))}</div>
       <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(s.description))}</div>
     </div>
   `).join('') || `<div class="loadSub">No stratagems listed.</div>`;
