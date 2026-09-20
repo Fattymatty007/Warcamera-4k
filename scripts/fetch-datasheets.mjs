@@ -183,6 +183,24 @@ async function main() {
           if (formMatch) name = substituteAbilityParam(decodeEntities(formMatch[1]), param).trim();
         }
       }
+      // Some abilities (e.g. Lone Operative) write the real value straight
+      // into their own main rules paragraph ("...within 12\" of this
+      // unit...") rather than going through the shared ref-table param
+      // substitution above, but Wahapedia still appends a second, generic
+      // "If this ability takes the form Lone Operative X\", ..." sentence
+      // after it — a leftover reference explainer with no parameter of its
+      // own to fill in, so it would otherwise leak a literal "X" into the
+      // text. That trailing sentence is always redundant with the real
+      // paragraph right before it, so any copy of it that still contains
+      // an unsubstituted "X" (i.e. one the substitution above didn't or
+      // couldn't fill in) is dropped rather than shown broken. A correctly
+      // substituted one (Scouts, Feel No Pain, Deadly Demise) has no bare
+      // X left and is left alone.
+      description = description
+        .replace(/\s*(?:This ability always takes the form|If this ability takes the form)\b[^.]*\./gi, (m) => (/\bX\b/.test(m) ? '' : m))
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
       if (!name || seenAbilityNames.has(name)) continue;
       seenAbilityNames.add(name);
       abilities.push({ name, description });
