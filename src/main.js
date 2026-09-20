@@ -501,8 +501,17 @@ async function lookupOfficialDatasheet(unitName, factionHint){
 // saved card is about to be shown, same pattern as
 // withFreshDetachmentData/withFreshSecondaryData elsewhere. A unit that
 // genuinely has none of these still comes back null/undefined either way.
+//
+// Abilities are different: they're essentially never empty, so a card
+// saved before a scraper bugfix (e.g. a parameterized ability's number
+// missing from its own heading, or a glued-on rulebook section number like
+// "DEADLY DEMISE24.08") still has a *populated* abilities array — just a
+// stale, wrong one — and the "only fill in what's missing" check above
+// would never touch it. Abilities are always overwritten from the current
+// official record instead, same as withFreshDetachmentData always
+// refreshes the whole Detachment rather than only patching gaps.
 async function withFreshDatasheetFields(card){
-  if(!card || (card.transport && card.damaged && card.loadout && card.leader)) return card;
+  if(!card) return card;
   const official = await lookupOfficialDatasheet(card.unit_name, card.faction);
   if(!official) return card;
   const patch = {};
@@ -510,6 +519,7 @@ async function withFreshDatasheetFields(card){
   if(!card.damaged && official.damaged) patch.damaged = official.damaged;
   if(!card.loadout && official.loadout) patch.loadout = official.loadout;
   if(!card.leader && official.leader) patch.leader = official.leader;
+  if(official.abilities && official.abilities.length) patch.abilities = official.abilities;
   return Object.keys(patch).length ? Object.assign({}, card, patch) : card;
 }
 
