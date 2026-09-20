@@ -1140,7 +1140,7 @@ function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredF
   `).join('');
   const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
   main.innerHTML = `
-    <div class="stickyConfirmBar">
+    <div class="stickyTopBar">
       <button class="btn primary" id="confirmListImportBtn">💾 Save to a New Folder</button>
       <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
     </div>
@@ -2063,11 +2063,13 @@ async function renderSendToFolderPicker(itemLabel, verb, onPick, onCancel){
   const folders = list.filter(f => f.isFolder);
 
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn ghost" id="sendToCancelBtn" data-nav-back>✕ Cancel</button>
+    </div>
     <div class="noteBox">${verb} <strong>${escapeHtml(itemLabel)}</strong> into which Army List folder?</div>
     ${folders.length ? folders.map((f, i) => `
       <button class="btn gold" data-send-folder-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">🗂 ${escapeHtml(f.folderName || 'Army List Units')}</button>
     `).join('') : '<div class="noteBox">No Army List folders yet — upload a list first to create one.</div>'}
-    <button class="btn ghost" id="sendToCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   folders.forEach((f, i) => {
     document.querySelector(`[data-send-folder-idx="${i}"]`).onclick = () => onPick(f);
@@ -2116,9 +2118,11 @@ async function renderBattleList(){
   `).join('');
 
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn primary" id="newBattleBtn">+ New Battle</button>
+      <button class="btn ghost" id="battlesHomeBtn" data-nav-back>🏠 Home</button>
+    </div>
     ${battles.length ? '<div class="noteBox">Tap a battle to open it.</div>' + cards : emptyNote}
-    <button class="btn primary" id="newBattleBtn">+ New Battle</button>
-    <button class="btn ghost" id="battlesHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   battles.forEach(b => {
@@ -2514,7 +2518,7 @@ async function renderBattleCollectionPicker(battleId, team){
   }).join('');
 
   main.innerHTML = `
-    <div class="stickyConfirmBar">
+    <div class="stickyTopBar">
       ${list.length ? '<button class="btn primary" id="confirmCollAddBtn">✓ Add Selected</button>' : ''}
       <button class="btn ghost" id="collPickerBackBtn" data-nav-back>← Back</button>
     </div>
@@ -3141,7 +3145,7 @@ async function renderSetSecondaryMissions(battleId, team){
   }).join('');
 
   main.innerHTML = `
-    <div class="stickyConfirmBar">
+    <div class="stickyTopBar">
       <button class="btn primary" id="confirmSetSecBtn" disabled>✓ Set These 2 Missions</button>
       <button class="btn ghost" id="cancelSetSecBtn" data-nav-back>← Back to Tracker</button>
     </div>
@@ -3209,13 +3213,15 @@ async function renderBattleTracker(battleId, tab){
   const showAddUnits = (tab === 'my' || tab === 'opponent') && !tracker.finished;
 
   main.innerHTML = `
-    <div class="tabBar">
-      <button class="tabBtn${tab==='my'?' active':''}" data-tab="my">My Army</button>
-      <button class="tabBtn${tab==='opponent'?' active':''}" data-tab="opponent">${escapeHtml(battle.opponent)}</button>
-      <button class="tabBtn${tab==='tracker'?' active':''}" data-tab="tracker">Tracker</button>
+    <div class="stickyTopBar">
+      <div class="tabBar">
+        <button class="tabBtn${tab==='my'?' active':''}" data-tab="my">My Army</button>
+        <button class="tabBtn${tab==='opponent'?' active':''}" data-tab="opponent">${escapeHtml(battle.opponent)}</button>
+        <button class="tabBtn${tab==='tracker'?' active':''}" data-tab="tracker">Tracker</button>
+      </div>
+      ${showAddUnits ? `<button class="btn ghost" id="trackerAddUnitsBtn">➕ Add Units to ${tab==='my'?'My Army':escapeHtml(battle.opponent)+"'s Army"}</button>` : ''}
     </div>
     ${tabHtml}
-    ${showAddUnits ? `<button class="btn ghost" id="trackerAddUnitsBtn" style="margin-top:10px;">➕ Add Units to ${tab==='my'?'My Army':escapeHtml(battle.opponent)+"'s Army"}</button>` : ''}
   `;
 
   main.querySelectorAll('[data-tab]').forEach(btn => {
@@ -3393,8 +3399,10 @@ async function renderCollectionList(){
   }).join('');
 
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn ghost" id="collectionHomeBtn" data-nav-back>🏠 Home</button>
+    </div>
     ${list.length ? '<div class="noteBox">Tap a saved unit, folder, list, or Detachment card to reopen it. Hold a unit or Detachment card to move it into an Army List folder.</div>' + cards : emptyNote}
-    <button class="btn ghost" id="collectionHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   list.forEach(u => {
@@ -3590,9 +3598,11 @@ function renderDetachmentSearchResult(card, actionNote){
 function renderDetachmentFactionPicker(query, matches){
   setStatus('', 'STANDBY');
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn ghost" id="detachPickerCancelBtn" data-nav-back>✕ Cancel</button>
+    </div>
     <div class="noteBox">"${escapeHtml(query)}" matches more than one Detachment. Which one do you want?</div>
     ${matches.map((m, i) => `<button class="btn gold" data-detach-match-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(m.displayName || 'Detachment')} — ${escapeHtml(m.faction || 'Unknown Faction')}</button>`).join('')}
-    <button class="btn ghost" id="detachPickerCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   matches.forEach((m, i) => {
     document.querySelector(`[data-detach-match-idx="${i}"]`).onclick = () => renderDetachmentSearchResult(m);
@@ -3642,9 +3652,11 @@ async function renderCustomLibrary(){
   `).join('');
 
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn primary" id="addCustomBtn">+ Add Custom Model</button>
+      <button class="btn ghost" id="customHomeBtn" data-nav-back>🏠 Home</button>
+    </div>
     ${list.length ? '<div class="noteBox">Tap a custom model to jump straight to its datasheet.</div>' + cards : emptyNote}
-    <button class="btn primary" id="addCustomBtn">+ Add Custom Model</button>
-    <button class="btn ghost" id="customHomeBtn" data-nav-back>🏠 Home</button>
   `;
 
   list.forEach(m => {
@@ -3864,9 +3876,11 @@ async function fetchDatasheet(unitName, faction, mode){
 function renderFactionPicker(unitName, variants, mode){
   setStatus('', 'STANDBY');
   main.innerHTML = `
+    <div class="stickyTopBar">
+      <button class="btn ghost" id="factionPickerCancelBtn" data-nav-back>✕ Cancel</button>
+    </div>
     <div class="noteBox">"${escapeHtml(unitName)}" has its own datasheet in more than one army. Which one do you want?</div>
     ${variants.map((v, i) => `<button class="btn gold" data-faction-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(v.faction || 'Unknown Faction')}</button>`).join('')}
-    <button class="btn ghost" id="factionPickerCancelBtn" data-nav-back style="margin-top:6px;">✕ Cancel</button>
   `;
   variants.forEach((v, i) => {
     document.querySelector(`[data-faction-idx="${i}"]`).onclick = () => fetchDatasheet(v.displayName || unitName, v.faction, mode);
