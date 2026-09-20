@@ -157,7 +157,19 @@ async function main() {
         // with one of these abilities would show the literal letter "X"
         // instead of its actual value.
         const param = stripHtml(a.parameter);
-        if (param) description = description.replace(/\bX\+/g, param).replace(/\bX\b/g, param);
+        if (param) {
+          description = description.replace(/\bX\+/g, param).replace(/\bX\b/g, param);
+          // The real 40k card shows the number right on the ability's own
+          // heading too ("SCOUTS 6\"", "FEEL NO PAIN 5+"), not just buried
+          // in the description prose. The reference text spells out that
+          // exact heading once, in "This ability always takes the form
+          // <b>NAME X...</b>" — reused verbatim (with X substituted) rather
+          // than guessing at name+value formatting ourselves, since some of
+          // these carry a trailing symbol (Scouts' inches mark) that a bare
+          // "name + param" concatenation would miss.
+          const formMatch = (ref.description || '').match(/takes the form\s*<b>([^<]+)<\/b>/i);
+          if (formMatch) name = decodeEntities(formMatch[1]).replace(/\bX\+/g, param).replace(/\bX\b/g, param).trim();
+        }
       }
       if (!name || seenAbilityNames.has(name)) continue;
       seenAbilityNames.add(name);
