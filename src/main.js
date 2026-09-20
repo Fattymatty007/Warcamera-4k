@@ -360,14 +360,14 @@ async function renderPrimaryMission(battleId, returnTab){
   const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
 
   // A resolved Detachment's card can still be an old, pre-disposition-field
-  // snapshot (see withFreshDisposition) — heal it here too, same as the
+  // snapshot (see withFreshDetachmentData) — heal it here too, same as the
   // Choose Active Detachment screen and the Detachment Rules card already
   // do, or this lookup would silently fail for a battle roster saved
   // before that field existed.
   const myDetach = resolveActiveDetachment(battle.myUnits, battle.myActiveDetachmentId);
   const oppDetach = resolveActiveDetachment(battle.opponentUnits, battle.opponentActiveDetachmentId);
-  const myDisposition = myDetach && (await withFreshDisposition(myDetach.card)).disposition;
-  const oppDisposition = oppDetach && (await withFreshDisposition(oppDetach.card)).disposition;
+  const myDisposition = myDetach && (await withFreshDetachmentData(myDetach.card)).disposition;
+  const oppDisposition = oppDetach && (await withFreshDetachmentData(oppDetach.card)).disposition;
 
   const myMission = findPrimaryMission(missionsData, myDisposition, oppDisposition);
   const oppMission = findPrimaryMission(missionsData, oppDisposition, myDisposition);
@@ -396,12 +396,26 @@ async function renderPrimaryMission(battleId, returnTab){
   }
 }
 
-async function withFreshDisposition(card){
-  if(!card || card.disposition) return card;
+// A saved Detachment card (My Collection, a folder, a battle roster) is a
+// frozen snapshot from whenever it was looked up/added — its rule,
+// enhancements, and stratagems (including each stratagem's WHEN/phase/turn
+// timing) can go stale as Wahapedia's own export gets corrected via
+// errata, with an already-saved card having no way to pick that up on its
+// own (disposition used to be the only field patched back in here, for a
+// card saved before disposition existed at all). Since this is a free
+// static lookup — no Gemini call, no network cost beyond the dataset's own
+// already-cached fetch — the whole record is refreshed from the current
+// dataset every time a saved card is about to be shown, not just when
+// something is missing, so stratagem text/timing is never stuck showing an
+// old, since-corrected version. Falls back to the saved snapshot as-is if
+// the detachment can no longer be found in the current dataset (e.g.
+// renamed/removed upstream) rather than blanking it out.
+async function withFreshDetachmentData(card){
+  if(!card) return card;
   const data = await loadDetachmentsData();
   const faction = data && data.factions && data.factions[normalizePointsName(card.faction || '')];
   const fresh = faction && faction.detachments[normalizePointsName(card.displayName || '')];
-  return fresh && fresh.disposition ? Object.assign({}, card, { disposition: fresh.disposition }) : card;
+  return fresh ? Object.assign({}, card, fresh) : card;
 }
 
 function htmlToPlainText(html){
@@ -459,7 +473,7 @@ async function lookupOfficialDatasheet(unitName, factionHint){
 // without it, so an old stored card can be missing it even though a fresh
 // lookup now has it. Patch it back in from the current dataset by
 // name+faction whenever a saved card is about to be shown, same pattern as
-// withFreshDisposition/withFreshSecondaryData elsewhere. A unit that
+// withFreshDetachmentData/withFreshSecondaryData elsewhere. A unit that
 // genuinely has no TRANSPORT keyword still comes back null either way.
 async function withFreshTransport(card){
   if(!card || card.transport) return card;
@@ -2261,7 +2275,7 @@ async function renderChooseActiveDetachment(battleId, onDone){
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
   for(const u of [...battle.myUnits, ...battle.opponentUnits]){
-    if(u.isDetachment) u.card = await withFreshDisposition(u.card);
+    if(u.isDetachment) u.card = await withFreshDetachmentData(u.card);
   }
 
   const buildSideChoice = (units, team, label, activeId) => {
@@ -3465,7 +3479,7 @@ function buildDetachmentRulesHtml(card){
 }
 
 async function renderDetachmentRulesView(card, onBack, backLabel){
-  card = await withFreshDisposition(card);
+  card = await withFreshDetachmentData(card);
   setStatus('', 'STANDBY');
   main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
