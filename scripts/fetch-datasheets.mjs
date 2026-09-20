@@ -59,7 +59,15 @@ function decodeEntities(s) {
 }
 
 function stripHtml(s) {
-  return decodeEntities((s || '').replace(/<[^>]+>/g, '')).replace(/\s{2,}/g, ' ').trim();
+  // Some of Abilities.csv's reference entries repeat the ability's own
+  // name (plus a rulebook section number like "24.12") in a
+  // <div class="abNameWrap">...</div> block ahead of the real text — e.g.
+  // "FEEL NO PAIN24.12The hardiest warriors..." once tags are stripped.
+  // That heading is already shown separately as the ability's own name, so
+  // the whole block (including the empty icon div beside it) is dropped
+  // here rather than left to glue onto the real text with no separator.
+  const withoutHeadingBlock = (s || '').replace(/<div class="abNameWrap">[\s\S]*?<div class="abIcon">[\s\S]*?<\/div>\s*<\/div>/g, '');
+  return decodeEntities(withoutHeadingBlock.replace(/<[^>]+>/g, '')).replace(/\s{2,}/g, ' ').trim();
 }
 
 function normalizeName(name) {
@@ -77,7 +85,7 @@ function groupBy(rows, key) {
 }
 
 async function main() {
-  const [datasheets, factions, models, wargear, abilitiesRows, abilitiesRef, keywords, composition] = await Promise.all([
+  const [datasheets, factions, models, wargear, abilitiesRows, abilitiesRef, keywords, composition, leaderRows] = await Promise.all([
     fetchCsv('Datasheets.csv'),
     fetchCsv('Factions.csv'),
     fetchCsv('Datasheets_models.csv'),
@@ -86,10 +94,18 @@ async function main() {
     fetchCsv('Abilities.csv'),
     fetchCsv('Datasheets_keywords.csv'),
     fetchCsv('Datasheets_unit_composition.csv'),
+    fetchCsv('Datasheets_leader.csv'),
   ]);
 
   const factionById = new Map(factions.map((f) => [f.id, f.name]));
   const abilityRefById = new Map(abilitiesRef.map((a) => [a.id, a]));
+  // Which unit(s) a Character can attach to and lead — Datasheets.csv's own
+  // "leader_head"/"leader_footer" columns hold that ability's intro/closing
+  // prose (blank for most datasheets, including plenty of real Leaders —
+  // the attachable-unit list itself lives only in this separate join
+  // table), joined against every datasheet's display name below.
+  const datasheetNameById = new Map(datasheets.map((d) => [d.id, stripHtml(d.name)]));
+  const leaderAttachedByLeaderId = groupBy(leaderRows, 'leader_id');
   const modelsByDs = groupBy(models, 'datasheet_id');
   const wargearByDs = groupBy(wargear, 'datasheet_id');
   const abilitiesByDs = groupBy(abilitiesRows, 'datasheet_id');
@@ -133,6 +149,15 @@ async function main() {
         const ref = abilityRefById.get(a.ability_id);
         name = stripHtml(ref.name);
         description = stripHtml(ref.description);
+        // Some Core abilities are parameterized ("Feel No Pain X+",
+        // "Deadly Demise X", "Scouts X\"") — the shared reference text
+        // always uses a literal capital "X" as a placeholder; this row's
+        // own "parameter" column carries the real value for this specific
+        // datasheet (e.g. "5+", "D3", "6"). Left unsubstituted, every unit
+        // with one of these abilities would show the literal letter "X"
+        // instead of its actual value.
+        const param = stripHtml(a.parameter);
+        if (param) description = description.replace(/\bX\+/g, param).replace(/\bX\b/g, param);
       }
       if (!name || seenAbilityNames.has(name)) continue;
       seenAbilityNames.add(name);
@@ -152,10 +177,31 @@ async function main() {
     const dsComposition = (compositionByDs.get(ds.id) || []).sort((a, b) => Number(a.line) - Number(b.line));
     const unitComposition = dsComposition.map((c) => stripHtml(c.description)).filter(Boolean).join('; ');
 
+    // Which units this Character can attach to and lead — the "Leader"
+    // ability. Its intro/closing prose (leader_head/leader_footer) is
+    // blank on plenty of real Leaders, so presence is judged by having
+    // *something* to show (either that prose, or an actual attachable-unit
+    // list from Datasheets_leader.csv), not by the prose fields alone.
+    const attachedNames = [...new Set(
+      (leaderAttachedByLeaderId.get(ds.id) || [])
+        .map((r) => datasheetNameById.get(r.attached_id))
+        .filter(Boolean),
+    )];
+    const leaderHead = stripHtml(ds.leader_head);
+    const leaderFooter = stripHtml(ds.leader_footer);
+    const leaderParts = [];
+    if (leaderHead) leaderParts.push(leaderHead);
+    if (attachedNames.length) leaderParts.push(`This model can be attached to the following unit${attachedNames.length === 1 ? '' : 's'}: ${attachedNames.join(', ')}.`);
+    if (leaderFooter) leaderParts.push(leaderFooter);
+
     const record = {
       displayName: stripHtml(ds.name),
       faction: factionById.get(ds.faction_id) || '',
       unit_composition: unitComposition,
+      // A short "comes equipped with" summary, straight from Datasheets.csv's
+      // own "loadout" column — distinct from the full weapons table below,
+      // which lists every available option rather than just the default.
+      loadout: stripHtml(ds.loadout) || null,
       // Transport capacity + which models can embark, straight from
       // Datasheets.csv's own "transport" column — blank for the vast
       // majority of units (no TRANSPORT keyword), a real value like "This
@@ -171,6 +217,9 @@ async function main() {
         threshold: stripHtml(ds.damaged_w),
         description: stripHtml(ds.damaged_description),
       } : null,
+      // Which units this Character can attach to and lead — null for the
+      // vast majority of datasheets (not a Leader at all).
+      leader: leaderParts.length ? leaderParts.join(' ') : null,
       stats: {
         movement: stripHtml(primary.M),
         toughness: stripHtml(primary.T),
