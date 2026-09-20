@@ -475,10 +475,23 @@ async function lookupOfficialDatasheet(unitName, factionHint){
 // name+faction whenever a saved card is about to be shown, same pattern as
 // withFreshDetachmentData/withFreshSecondaryData elsewhere. A unit that
 // genuinely has no TRANSPORT keyword still comes back null either way.
-async function withFreshTransport(card){
-  if(!card || card.transport) return card;
+// A saved/logged unit card (My Collection, a folder, a battle roster) is a
+// frozen snapshot taken whenever it was looked up — fields like transport
+// capacity and Damaged (degraded-profile) rules were added to the official
+// dataset after some cards had already been saved without them, so an old
+// stored card can be missing either even though a fresh lookup now has it.
+// Both are patched back in independently from the current dataset by
+// name+faction whenever a saved card is about to be shown, same pattern as
+// withFreshDetachmentData/withFreshSecondaryData elsewhere. A unit that
+// genuinely has neither still comes back null/undefined either way.
+async function withFreshDatasheetFields(card){
+  if(!card || (card.transport && card.damaged)) return card;
   const official = await lookupOfficialDatasheet(card.unit_name, card.faction);
-  return official && official.transport ? Object.assign({}, card, { transport: official.transport }) : card;
+  if(!official) return card;
+  const patch = {};
+  if(!card.transport && official.transport) patch.transport = official.transport;
+  if(!card.damaged && official.damaged) patch.damaged = official.damaged;
+  return Object.keys(patch).length ? Object.assign({}, card, patch) : card;
 }
 
 // Builds the same shape fetchDatasheet()/renderDatasheet() already expect
@@ -499,6 +512,7 @@ function buildParsedFromOfficialDatasheet(official, isLight){
   return Object.assign(base, {
     unit_composition: official.unit_composition,
     transport: official.transport,
+    damaged: official.damaged,
     abilities: official.abilities,
     keywords: official.keywords,
     faction_keywords: official.faction_keywords,
@@ -2762,7 +2776,7 @@ async function renderBattleUnitView(battle, unit, onBack, backLabel){
     renderTextListView(unit, onBack, backLabel);
     return;
   }
-  unit = await withFreshTransport(unit);
+  unit = await withFreshDatasheetFields(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>`;
@@ -3393,7 +3407,7 @@ async function renderCollectionList(){
 
 async function renderCollectionUnitView(unit){
   setStatus('', 'STANDBY');
-  unit = await withFreshTransport(unit);
+  unit = await withFreshDatasheetFields(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn" data-nav-back>← Back to Collection</button>`;
@@ -3561,7 +3575,7 @@ function renderDetachmentFactionPicker(query, matches){
 
 async function renderCollectionFolderUnitView(entry, unit){
   setStatus('', 'STANDBY');
-  unit = await withFreshTransport(unit);
+  unit = await withFreshDatasheetFields(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn" data-nav-back>← Back to Folder</button>`;
@@ -3752,6 +3766,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
  "points_uncertain": false,
  "unit_composition": "short plain text",
  "transport": "if this unit has the TRANSPORT keyword, its transport capacity and which models can embark, paraphrased short plain text — otherwise null",
+ "damaged": "if this unit (a Vehicle or Monster) has a Damaged profile, {\"threshold\": \"the wounds-remaining range it applies at, e.g. '1-5'\", \"description\": \"the penalty it imposes, paraphrased short plain text\"} — otherwise null",
  "stats": {"movement":"...", "toughness":"...", "save":"...", "wounds":"...", "leadership":"...", "oc":"...", "invulnerable_save":"... or null"},
  "weapons": [{"name":"...", "type":"Ranged or Melee", "range":"...", "attacks":"...", "skill":"...", "strength":"...", "ap":"...", "damage":"...", "abilities":"weapon special rules, short"}] (every weapon option available to the unit — see instruction above, not just a default loadout),
  "abilities": [{"name":"...", "description":"paraphrased in your own words, one to two sentences, do not quote official rule text verbatim"}],
@@ -3897,6 +3912,8 @@ function buildDatasheetSheetHtml(d){
       ${d.unit_composition ? `<div class="section"><div class="sectionTitle">Unit Composition</div><div class="abilityDesc">${escapeHtml(d.unit_composition)}</div></div>` : ''}
 
       ${d.transport ? `<div class="section"><div class="sectionTitle">Transport Capacity</div><div class="abilityDesc">${escapeHtml(d.transport)}</div></div>` : ''}
+
+      ${d.damaged ? `<div class="section"><div class="sectionTitle">Damaged: ${escapeHtml(d.damaged.threshold || '')} Wounds Remaining</div><div class="abilityDesc">${escapeHtml(d.damaged.description || '')}</div></div>` : ''}
 
       ${buildWeaponsTableHtml(d.weapons)}
 

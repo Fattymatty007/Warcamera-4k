@@ -141,6 +141,16 @@ async function main() {
       // majority of units (no TRANSPORT keyword), a real value like "This
       // model has a transport capacity of 12 ..." for the ones that do.
       transport: stripHtml(ds.transport) || null,
+      // Degraded-profile rules for Vehicles/Monsters with a wounds-remaining
+      // threshold, straight from Datasheets.csv's own "damaged_w"/
+      // "damaged_description" columns — null for the majority of units
+      // (no Damaged profile at all), a real {threshold, description} pair
+      // for the ones that do (e.g. threshold "1-5", description "While
+      // this model has 1-5 wounds remaining, subtract 1 from Hit rolls...").
+      damaged: (ds.damaged_w || ds.damaged_description) ? {
+        threshold: stripHtml(ds.damaged_w),
+        description: stripHtml(ds.damaged_description),
+      } : null,
       stats: {
         movement: stripHtml(primary.M),
         toughness: stripHtml(primary.T),
