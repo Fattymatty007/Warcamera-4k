@@ -74,6 +74,18 @@ function normalizeName(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Substitutes a parameterized ability's "X" placeholder with its real value
+// (e.g. "5+", "D3", "6\""). Handled as three separate passes — X+, X", then
+// bare X — because a distance parameter already carries its own trailing
+// inches mark (a.parameter comes through as e.g. `6"`, not just `6`), so a
+// template written as `X"` must not also append a second one on top of it.
+function substituteAbilityParam(text, param) {
+  return (text || '')
+    .replace(/\bX\+/g, param)
+    .replace(/\bX"/g, param.endsWith('"') ? param : `${param}"`)
+    .replace(/\bX\b/g, param);
+}
+
 function groupBy(rows, key) {
   const map = new Map();
   for (const row of rows) {
@@ -158,7 +170,7 @@ async function main() {
         // instead of its actual value.
         const param = stripHtml(a.parameter);
         if (param) {
-          description = description.replace(/\bX\+/g, param).replace(/\bX\b/g, param);
+          description = substituteAbilityParam(description, param);
           // The real 40k card shows the number right on the ability's own
           // heading too ("SCOUTS 6\"", "FEEL NO PAIN 5+"), not just buried
           // in the description prose. The reference text spells out that
@@ -168,7 +180,7 @@ async function main() {
           // these carry a trailing symbol (Scouts' inches mark) that a bare
           // "name + param" concatenation would miss.
           const formMatch = (ref.description || '').match(/takes the form\s*<b>([^<]+)<\/b>/i);
-          if (formMatch) name = decodeEntities(formMatch[1]).replace(/\bX\+/g, param).replace(/\bX\b/g, param).trim();
+          if (formMatch) name = substituteAbilityParam(decodeEntities(formMatch[1]), param).trim();
         }
       }
       if (!name || seenAbilityNames.has(name)) continue;
