@@ -38,8 +38,28 @@ async function fetchCsv(name) {
   return rows;
 }
 
+// Wahapedia's HTML uses named/numeric character references for anything
+// beyond plain ASCII (curly quotes, dashes, non-breaking spaces, ...)
+// instead of the literal UTF-8 character — e.g. "bearer&rsquo;s" — which,
+// left undecoded, shows up verbatim as junk-looking text like "&rsquo;"
+// in the app. Only the small set actually seen in this export is named
+// here; anything else falls back through the numeric-reference cases,
+// which cover the rest.
+const HTML_ENTITIES = {
+  nbsp: ' ', emsp: ' ', ensp: ' ', thinsp: ' ',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“',
+  ndash: '–', mdash: '—', hellip: '…', deg: '°',
+};
+function decodeEntities(s) {
+  return (s || '')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => (name in HTML_ENTITIES) ? HTML_ENTITIES[name] : m);
+}
+
 function stripHtml(s) {
-  return (s || '').replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
+  return decodeEntities((s || '').replace(/<[^>]+>/g, '')).replace(/\s{2,}/g, ' ').trim();
 }
 
 function normalizeName(name) {

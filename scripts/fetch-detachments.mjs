@@ -43,8 +43,28 @@ async function fetchCsv(name) {
 // legend=true). No Legends filtering is needed here for that reason; the
 // edition-scoped /wh40k11ed/ export already doesn't include retired
 // content, same as already relied on for the datasheets pipeline.
+// Wahapedia's HTML uses named/numeric character references for anything
+// beyond plain ASCII (curly quotes, dashes, non-breaking spaces, ...)
+// instead of the literal UTF-8 character — e.g. "bearer&rsquo;s" — which,
+// left undecoded, shows up verbatim as junk-looking text like "&rsquo;"
+// in the app. Applied here for stripped fields (names); the longer
+// description fields below are kept as raw HTML for htmlToPlainText to
+// convert at render time, so it decodes entities too — see main.js.
+const HTML_ENTITIES = {
+  nbsp: ' ', emsp: ' ', ensp: ' ', thinsp: ' ',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“',
+  ndash: '–', mdash: '—', hellip: '…', deg: '°',
+};
+function decodeEntities(s) {
+  return (s || '')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => (name in HTML_ENTITIES) ? HTML_ENTITIES[name] : m);
+}
+
 function stripHtml(s) {
-  return (s || '').replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
+  return decodeEntities((s || '').replace(/<[^>]+>/g, '')).replace(/\s{2,}/g, ' ').trim();
 }
 
 function normalizeName(name) {

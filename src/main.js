@@ -418,13 +418,37 @@ async function withFreshDetachmentData(card){
   return fresh ? Object.assign({}, card, fresh) : card;
 }
 
+// Wahapedia's HTML uses named/numeric character references for anything
+// beyond plain ASCII (curly quotes, dashes, non-breaking spaces, ...)
+// instead of the literal UTF-8 character — left undecoded here, one shows
+// up verbatim as junk-looking text like "&rsquo;" once escapeHtml()
+// re-escapes its "&". Datasheet/points/mission text is already decoded at
+// scrape time (see stripHtml in the fetch-*.mjs scripts); Detachment Rules
+// text (ability/enhancement/stratagem descriptions) is the one place kept
+// as raw HTML end to end, converted here at render time instead — so this
+// is where it needs decoding too.
+const HTML_ENTITIES = {
+  nbsp: ' ', emsp: ' ', ensp: ' ', thinsp: ' ',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“',
+  ndash: '–', mdash: '—', hellip: '…', deg: '°',
+};
+function decodeHtmlEntities(s){
+  return (s || '')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => (name in HTML_ENTITIES) ? HTML_ENTITIES[name] : m);
+}
+
 function htmlToPlainText(html){
-  return (html || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<li>/gi, '\n• ')
-    .replace(/<\/li>/gi, '')
-    .replace(/<\/?ul>/gi, '')
-    .replace(/<[^>]+>/g, '')
+  return decodeHtmlEntities(
+    (html || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<li>/gi, '\n• ')
+      .replace(/<\/li>/gi, '')
+      .replace(/<\/?ul>/gi, '')
+      .replace(/<[^>]+>/g, '')
+  )
     .replace(/\n{2,}/g, '\n')
     .replace(/^\n+/, '')
     .trim();

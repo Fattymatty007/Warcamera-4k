@@ -36,17 +36,28 @@ import { writeFile } from 'node:fs/promises';
 
 const PAGE_URL = 'https://wahapedia.ru/wh40k11ed/the-rules/mission-deck-2026-27/';
 
-function stripHtml(s) {
+// Wahapedia's HTML uses named/numeric character references for anything
+// beyond plain ASCII instead of the literal UTF-8 character — left
+// undecoded, one shows up verbatim as junk-looking text like "&rsquo;" in
+// the app. This used to only cover the handful of entities seen here;
+// broadened to a shared named-entity table plus any numeric reference
+// (decimal or hex), so an entity this export hasn't used yet still decodes
+// correctly instead of leaking through as literal text.
+const HTML_ENTITIES = {
+  nbsp: ' ', emsp: ' ', ensp: ' ', thinsp: ' ',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“',
+  ndash: '–', mdash: '—', hellip: '…', deg: '°',
+};
+function decodeEntities(s) {
   return (s || '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&#8217;|&rsquo;/g, '’')
-    .replace(/&#8216;|&lsquo;/g, '‘')
-    .replace(/&#8220;|&ldquo;/g, '“')
-    .replace(/&#8221;|&rdquo;/g, '”')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => (name in HTML_ENTITIES) ? HTML_ENTITIES[name] : m);
+}
+
+function stripHtml(s) {
+  return decodeEntities((s || '').replace(/<[^>]+>/g, '')).replace(/\s{2,}/g, ' ').trim();
 }
 
 // A caPmScore's VP portion is either a single caPmVP (optionally followed
