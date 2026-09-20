@@ -1140,12 +1140,14 @@ function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredF
   `).join('');
   const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
   main.innerHTML = `
+    <div class="stickyConfirmBar">
+      <button class="btn primary" id="confirmListImportBtn">💾 Save to a New Folder</button>
+      <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
+    </div>
     <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${detachRows}
     ${rows}
-    <button class="btn primary" id="confirmListImportBtn" style="margin-top:14px;">💾 Save to a New Folder</button>
-    <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
   `;
   document.getElementById('confirmListImportBtn').onclick = () => {
     const selectedUnits = units.filter((u, i) => document.querySelector(`.listUnitCheck[data-idx="${i}"]`).checked);
@@ -2512,10 +2514,12 @@ async function renderBattleCollectionPicker(battleId, team){
   }).join('');
 
   main.innerHTML = `
+    <div class="stickyConfirmBar">
+      ${list.length ? '<button class="btn primary" id="confirmCollAddBtn">✓ Add Selected</button>' : ''}
+      <button class="btn ghost" id="collPickerBackBtn" data-nav-back>← Back</button>
+    </div>
     <div class="noteBox">Adding to: <strong>${escapeHtml(teamLabel)}</strong>. Select any saved units, folders, or lists to add — no rescanning needed.</div>
     ${list.length ? rows : emptyNote}
-    ${list.length ? '<button class="btn primary" id="confirmCollAddBtn" style="margin-top:14px;">✓ Add Selected</button>' : ''}
-    <button class="btn ghost" id="collPickerBackBtn" data-nav-back style="margin-top:10px;">← Back</button>
   `;
 
   if(list.length){
@@ -3137,10 +3141,12 @@ async function renderSetSecondaryMissions(battleId, team){
   }).join('');
 
   main.innerHTML = `
+    <div class="stickyConfirmBar">
+      <button class="btn primary" id="confirmSetSecBtn" disabled>✓ Set These 2 Missions</button>
+      <button class="btn ghost" id="cancelSetSecBtn" data-nav-back>← Back to Tracker</button>
+    </div>
     <div class="noteBox">Choose exactly 2 Secondary Missions to set for ${escapeHtml(label)} this turn, instead of drawing at random.</div>
     ${rows || '<div class="noteBox">No Secondary Missions left to set — every one is already in hand or scored.</div>'}
-    <button class="btn primary" id="confirmSetSecBtn" style="margin-top:14px;" disabled>✓ Set These 2 Missions</button>
-    <button class="btn ghost" id="cancelSetSecBtn" data-nav-back>← Back to Tracker</button>
   `;
 
   const confirmBtn = document.getElementById('confirmSetSecBtn');
