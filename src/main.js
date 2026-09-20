@@ -1668,20 +1668,39 @@ async function removeUnitFromBattle(battleId, team, unitId){
 // Battles created before this feature has no .tracker at all — this lazily
 // gives it the default shape in place, so every tracker screen can just
 // read battle.tracker without an existence check of its own. Points come
-// from two places per side, matching how 40k is actually scored: primaryVP
-// is typed in directly by the player (primary scoring is read off the
+// from two places per side, matching how 40k is actually scored: primary
+// VP is typed in directly by the player (primary scoring is read off the
 // mission's own scoring table, not something this app knows), while
 // secondary VP is never typed in at all — it's the sum of whichever
 // free-form secondaries that side has ticked as scored (see totalVP).
+// Primary VP is entered per turn (primaryVPByTurn, keyed by turn number)
+// rather than as one running total the player has to keep re-adding to —
+// the visible entry field always starts a new turn at 0, and the total
+// shown elsewhere is every turn's entry summed together.
 function ensureTracker(battle){
   if(!battle.tracker){
     battle.tracker = {
       started: false, finished: false, turn: 1,
-      my: { cp: 0, primaryVP: 0, secondaries: [] },
-      opponent: { cp: 0, primaryVP: 0, secondaries: [] },
+      my: { cp: 0, primaryVPByTurn: {}, secondaries: [] },
+      opponent: { cp: 0, primaryVPByTurn: {}, secondaries: [] },
     };
   }
+  migratePrimaryVP(battle.tracker.my);
+  migratePrimaryVP(battle.tracker.opponent);
   return battle.tracker;
+}
+
+// A battle already in progress before per-turn Primary VP existed has a
+// single primaryVP scalar instead — the running total the player had been
+// keeping by hand. Folded in as one lump under a 'legacy' key (not a real
+// turn number) so the total stays continuous instead of dropping to zero,
+// while the current turn's own entry still starts fresh at 0 like any
+// other turn.
+function migratePrimaryVP(side){
+  if(!side.primaryVPByTurn){
+    side.primaryVPByTurn = {};
+    if(side.primaryVP) side.primaryVPByTurn.legacy = side.primaryVP;
+  }
 }
 
 // Achieved secondaries are discarded, not left ticked in place (see
@@ -1689,7 +1708,8 @@ function ensureTracker(battle){
 // from that point on, not on the active card anymore.
 function totalVP(side){
   const secondaryVP = (side.completedSecondaries || []).reduce((sum, s) => sum + (s.vp || 0), 0);
-  return (side.primaryVP || 0) + secondaryVP;
+  const primaryVP = Object.values(side.primaryVPByTurn || {}).reduce((sum, v) => sum + (v || 0), 0);
+  return primaryVP + secondaryVP;
 }
 
 function normalizeMissionKey(name){
@@ -2797,8 +2817,8 @@ function buildSideTrackerHtml(side, team, label, turn){
         <button class="counterBtn" data-cp-team="${team}" data-cp-delta="1">+</button>
       </div>
       <div class="counterRow">
-        <span class="counterLabel">Primary VP</span>
-        <input type="number" class="vpInput" data-vp-team="${team}" min="0" value="${side.primaryVP}"/>
+        <span class="counterLabel">Primary VP (this turn)</span>
+        <input type="number" class="vpInput" data-vp-team="${team}" min="0" value="${(side.primaryVPByTurn && side.primaryVPByTurn[turn]) || 0}"/>
       </div>
       <div class="secListLabel">Secondary Missions (tap to view, hold for options)</div>
       ${secHtml}
@@ -2842,7 +2862,7 @@ function buildSideTrackerReadOnlyHtml(side, label){
     <div class="trackerSide">
       <div class="sectionTitle">${escapeHtml(label)} — Final</div>
       <div class="counterRow"><span class="counterLabel">CP Remaining</span><span class="counterVal">${side.cp}</span></div>
-      <div class="counterRow"><span class="counterLabel">Primary VP</span><span class="counterVal">${side.primaryVP || 0}</span></div>
+      <div class="counterRow"><span class="counterLabel">Primary VP</span><span class="counterVal">${Object.values(side.primaryVPByTurn || {}).reduce((sum, v) => sum + (v || 0), 0)}</span></div>
       <div class="secListLabel">Secondaries Achieved</div>
       ${secHtml}
     </div>
@@ -3195,7 +3215,7 @@ async function renderBattleTracker(battleId, tab){
       input.addEventListener('change', async () => {
         const team = input.getAttribute('data-vp-team');
         const val = Math.max(0, parseInt(input.value, 10) || 0);
-        await updateBattleTracker(battleId, t => { t[team].primaryVP = val; });
+        await updateBattleTracker(battleId, t => { t[team].primaryVPByTurn[t.turn] = val; });
         renderBattleTracker(battleId, 'tracker');
       });
     });
