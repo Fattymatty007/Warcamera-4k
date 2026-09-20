@@ -1,0 +1,82 @@
+name: Diag Datasheet Unused Fields
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          node -e '
+          const BASE = "https://wahapedia.ru/wh40k11ed";
+          async function fetchCsv(name) {
+            const res = await fetch(`${BASE}/${name}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; warcamera-4k-diag-bot/1.0)" } });
+            if (!res.ok) { console.log(name, "-> HTTP", res.status); return null; }
+            const text = await res.text();
+            const lines = text.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.length > 0);
+            const headers = lines[0].split("|");
+            const rows = lines.slice(1).map(line => {
+              const cells = line.split("|");
+              const row = {};
+              headers.forEach((h, i) => { row[h] = (cells[i] || "").trim(); });
+              return row;
+            });
+            console.log(name, "->", rows.length, "rows, columns:", headers.join(", "));
+            return rows;
+          }
+
+          async function main() {
+            const datasheets = await fetchCsv("Datasheets.csv");
+            const names = ["Chaos Lord", "Chaos Rhino", "Knight Desecrator", "Intercessor Squad", "Rhino"];
+            console.log("\n=== Sample Datasheets.csv unused-field values ===");
+            for (const n of names) {
+              const rows = datasheets.filter(d => (d.name||"").toLowerCase() === n.toLowerCase());
+              for (const d of rows) {
+                console.log(JSON.stringify({
+                  name: d.name, role: d.role, loadout: (d.loadout||"").slice(0,200),
+                  virtual: d.virtual, is_support: d.is_support,
+                  leader_head: (d.leader_head||"").slice(0,300),
+                  leader_footer: (d.leader_footer||"").slice(0,300),
+                  link: d.link,
+                }));
+              }
+            }
+            // Distinct role/virtual/is_support values across the whole export
+            const roles = new Set(datasheets.map(d => d.role));
+            const virtuals = new Set(datasheets.map(d => d.virtual));
+            const supports = new Set(datasheets.map(d => d.is_support));
+            console.log("\nDistinct role values:", [...roles]);
+            console.log("Distinct virtual values:", [...virtuals]);
+            console.log("Distinct is_support values:", [...supports]);
+            const withLeader = datasheets.filter(d => (d.leader_head||"").trim() || (d.leader_footer||"").trim());
+            console.log("\nDatasheets with non-empty leader_head/footer:", withLeader.length, "of", datasheets.length);
+
+            console.log("\n=== Datasheets_models.csv unused columns sample ===");
+            const models = await fetchCsv("Datasheets_models.csv");
+            const sampleModels = models.filter(m => (m.name||"").trim() || (m.inv_sv_descr||"").trim() || (m.base_size_descr||"").trim()).slice(0, 8);
+            sampleModels.forEach(m => console.log(JSON.stringify({ datasheet_id: m.datasheet_id, name: m.name, inv_sv_descr: m.inv_sv_descr, base_size: m.base_size, base_size_descr: m.base_size_descr })));
+
+            console.log("\n=== Datasheets_abilities.csv type/parameter/model sample ===");
+            const abilities = await fetchCsv("Datasheets_abilities.csv");
+            const types = new Set(abilities.map(a => a.type));
+            console.log("Distinct ability type values:", [...types]);
+            const withParam = abilities.filter(a => (a.parameter||"").trim()).slice(0, 8);
+            console.log("Sample rows with non-empty parameter:", withParam.length);
+            withParam.forEach(a => console.log(JSON.stringify({ name: a.name, type: a.type, parameter: a.parameter, model: a.model })));
+
+            console.log("\n=== Datasheets_wargear.csv line_in_wargear/dice sample ===");
+            const wargear = await fetchCsv("Datasheets_wargear.csv");
+            const withDice = wargear.filter(w => (w.dice||"").trim()).slice(0, 5);
+            withDice.forEach(w => console.log(JSON.stringify({ name: w.name, dice: w.dice, line_in_wargear: w.line_in_wargear, A: w.A })));
+
+            console.log("\n=== Probing for a Leader-relationship CSV ===");
+            for (const candidate of ["Datasheets_leader.csv", "Datasheets_leaders.csv", "Leader.csv"]) {
+              await fetchCsv(candidate).catch(e => console.log(candidate, "-> error", e.message));
+            }
+          }
+          main().catch(e => { console.error(e); process.exit(1); });
+          '
