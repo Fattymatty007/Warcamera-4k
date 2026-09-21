@@ -1,10 +1,10 @@
-name: Update Points from Field Manual
+name: Update Points from Wahapedia
 
 on:
   schedule:
-    # Weekly; GW updates the Munitorum Field Manual far less often than this,
-    # but a cheap no-op run when nothing changed is fine. Use "Run workflow"
-    # in the Actions tab for an immediate refresh right after GW ships one.
+    # Weekly; points change far less often than this, but a cheap no-op run
+    # when nothing changed is fine. Use "Run workflow" in the Actions tab
+    # for an immediate refresh right after a points update ships.
     - cron: '0 12 * * 1'
   workflow_dispatch:
 
@@ -20,8 +20,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --no-save playwright@1
-      - run: npx playwright install --with-deps chromium
       - run: node scripts/fetch-points.mjs
       - name: Commit updated points data
         id: commit
@@ -33,7 +31,7 @@ jobs:
             echo "No changes to points data."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "Update points data from Munitorum Field Manual"
+            git commit -m "Update points data from Wahapedia"
             git push
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi

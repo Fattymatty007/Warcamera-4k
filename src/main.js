@@ -147,12 +147,16 @@ function confirmSlideDelete(title, message, onConfirm){
 const VISION_MODEL = 'gemini-flash-latest';
 const TEXT_MODEL = 'gemini-flash-lite-latest';
 
-// Official points data, extracted from Games Workshop's own Munitorum Field
-// Manual PDF by .github/workflows/update-points.yml (see scripts/fetch-points.mjs)
+// Official points data, extracted from Wahapedia's public 11th-edition data
+// export by .github/workflows/update-points.yml (see scripts/fetch-points.mjs)
 // and served as a static file alongside the app — no worker/Gemini call
 // involved. Preferred over the model's own points guess whenever a unit
-// matches, since GW's published points are authoritative and the model's
-// training data inevitably lags balance updates.
+// matches, since these published points are current and the model's
+// training data inevitably lags balance updates. Previously scraped from
+// Games Workshop's own Munitorum Field Manual web app directly; switched
+// to this same-source-as-everything-else approach after confirming its
+// accuracy against that GW-sourced data (see fetch-points.mjs for the
+// comparison this was based on).
 let pointsDataPromise = null;
 function loadPointsData(){
   if(!pointsDataPromise){
