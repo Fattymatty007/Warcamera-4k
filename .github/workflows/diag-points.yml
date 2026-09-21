@@ -10,41 +10,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Inspect CSVs
+      - name: Inspect HTML pages for points
         run: |
           node -e '
-          async function fetchCsv(name) {
-            const res = await fetch("https://wahapedia.ru/wh40k11ed/" + name, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
+          async function fetchHtml(url) {
+            const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
             const text = await res.text();
-            const lines = text.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.length > 0);
-            const headers = lines[0].split("|");
-            const rows = lines.slice(1).map(line => {
-              const cells = line.split("|");
-              const row = {};
-              headers.forEach((h, i) => { row[h] = (cells[i] || "").trim(); });
-              return row;
-            });
-            console.log(`\n=== ${name}: ${rows.length} rows ===`);
-            console.log("columns:", headers.join(", "));
-            return rows;
+            console.log(`\n=== ${url}: HTTP ${res.status}, ${text.length} bytes ===`);
+            return text;
           }
           (async () => {
-            const models = await fetchCsv("Datasheets_models.csv");
-            console.log("--- sample Datasheets_models rows ---");
-            console.log(JSON.stringify(models.slice(0, 8), null, 2));
+            // Individual datasheet page.
+            const dsHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/Custodian-Guard");
+            const ptsIdx = dsHtml.search(/pts/i);
+            console.log("first \"pts\" occurrence context:", dsHtml.slice(Math.max(0, ptsIdx - 300), ptsIdx + 300));
+            // Look for any class name containing "pts" or "cost" or "points".
+            const classMatches = [...dsHtml.matchAll(/class="([^"]*(?:[Pp]ts|[Cc]ost|[Pp]oint)[^"]*)"/g)].map(m => m[1]);
+            console.log("classes mentioning pts/cost/point:", [...new Set(classMatches)]);
 
-            const datasheets = await fetchCsv("Datasheets.csv");
-            console.log("--- sample Datasheets rows (first 3, all columns) ---");
-            console.log(JSON.stringify(datasheets.slice(0, 3), null, 2));
-
-            // Check whether a dedicated points-like csv exists at all.
-            for (const candidate of ["Points.csv", "Datasheets_points.csv", "Points_values.csv"]) {
-              try {
-                const res = await fetch("https://wahapedia.ru/wh40k11ed/" + candidate, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
-                console.log(`${candidate}: HTTP ${res.status}`);
-              } catch (e) {
-                console.log(`${candidate}: ERROR ${e.message}`);
-              }
-            }
+            // Faction roster/army-list page (all units for a faction at once).
+            const rosterHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/");
+            const rosterPtsIdx = rosterHtml.search(/pts/i);
+            console.log("faction page first \"pts\" occurrence context:", rosterHtml.slice(Math.max(0, rosterPtsIdx - 300), rosterPtsIdx + 300));
+            const rosterClassMatches = [...rosterHtml.matchAll(/class="([^"]*(?:[Pp]ts|[Cc]ost|[Pp]oint)[^"]*)"/g)].map(m => m[1]);
+            console.log("faction page classes mentioning pts/cost/point:", [...new Set(rosterClassMatches)]);
           })().catch(err => { console.error("FAILED:", err.message); process.exit(1); });
           '
