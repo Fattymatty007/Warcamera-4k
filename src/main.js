@@ -1758,7 +1758,7 @@ function findUnitTeam(battle, unitId){
 }
 
 // A unit's chosen Enhancement — one of its Detachment's paid upgrades,
-// only a CHARACTER can take one, and it's a property of this specific
+// and it's a property of this specific
 // roster entry (the same base unit could carry a different one, or none,
 // in a different battle) rather than the saved datasheet itself. Stored
 // as { name, cost, description } straight from the Detachment's own
@@ -2897,15 +2897,14 @@ async function renderBattleUnitView(battle, unit, onBack, backLabel){
   }
   const team = findUnitTeam(battle, unit.id);
   unit = await withFreshDatasheetFields(unit);
-  // Only a CHARACTER can be given an Enhancement, and only when this view
-  // was reached from an actual battle roster (team resolved) — a saved
-  // Collection unit isn't tied to any particular Detachment's own
-  // Enhancement list the way a roster entry is.
-  const isCharacter = (unit.keywords||[]).some(k => (k||'').toUpperCase() === 'CHARACTER');
+  // Any unit can carry an Enhancement/upgrade, not just Characters — only
+  // gated on this view being reached from an actual battle roster (team
+  // resolved), since a saved Collection unit isn't tied to any particular
+  // Detachment's own Enhancement list the way a roster entry is.
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `
-    ${(team && isCharacter) ? `<button class="btn gold" id="enhanceBtn">🎖 ${unit.enhancement ? 'Change' : 'Add'} Enhancement</button>` : ''}
+    ${team ? `<button class="btn gold" id="enhanceBtn">🎖 ${unit.enhancement ? 'Change' : 'Add'} Enhancement</button>` : ''}
     <button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>
   `;
   if(document.getElementById('enhanceBtn')){
@@ -3720,7 +3719,7 @@ async function renderTeamStratagems(battleId, team){
   document.getElementById('teamStratagemsBackBtn').onclick = () => renderBattleTracker(battleId, team);
 }
 
-// ---------- SCREEN: BATTLE — ASSIGN AN ENHANCEMENT TO A CHARACTER ----------
+// ---------- SCREEN: BATTLE — ASSIGN AN ENHANCEMENT/UPGRADE TO A UNIT ----------
 async function renderAssignEnhancement(battleId, team, unitId, onDone){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
