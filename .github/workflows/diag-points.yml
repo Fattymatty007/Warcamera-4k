@@ -7,33 +7,92 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Inspect HTML pages for points
+      - name: Sample-compare Wahapedia points vs current GW points-data.json
         run: |
           node -e '
-          async function fetchHtml(url) {
-            const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
-            const text = await res.text();
-            console.log(`\n=== ${url}: HTTP ${res.status}, ${text.length} bytes ===`);
-            return text;
-          }
-          (async () => {
-            const rosterHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/");
-            console.log("dsUnitCostHeader count on faction index page:", (rosterHtml.match(/dsUnitCostHeader/g) || []).length);
-            console.log("PriceTag count on faction index page:", (rosterHtml.match(/PriceTag/g) || []).length);
-            console.log("dsName count on faction index page:", (rosterHtml.match(/class="dsName"/g) || []).length);
+          const fs = require("fs");
 
-            // Grab context around the first dsUnitCostHeader on this page, plus
-            // whatever unit-name heading precedes it, to confirm pairing works
-            // the same way as on the single-unit page.
-            const idx = rosterHtml.indexOf("dsUnitCostHeader");
-            if (idx >= 0) {
-              console.log("--- context around first dsUnitCostHeader on faction index page ---");
-              console.log(rosterHtml.slice(Math.max(0, idx - 1500), idx + 500));
-            } else {
-              console.log("No dsUnitCostHeader found on the faction index page at all.");
+          function normalizeName(name) {
+            return (name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          }
+
+          async function fetchCsv(name) {
+            const res = await fetch("https://wahapedia.ru/wh40k11ed/" + name, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
+            const text = await res.text();
+            const lines = text.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.length > 0);
+            const headers = lines[0].split("|");
+            return lines.slice(1).map(line => {
+              const cells = line.split("|");
+              const row = {};
+              headers.forEach((h, i) => { row[h] = (cells[i] || "").trim(); });
+              return row;
+            });
+          }
+
+          function extractPoints(html) {
+            // Each cost tier is: <td colspan="2" class="dsUnitCostHeader">...</td>
+            // followed by one or more <td>N models</td><td><div class="PriceTag">P</div></td> rows.
+            const pairRe = /<td>(\d+)\s*models?<\/td><td><div class="PriceTag">(\d+)<\/div><\/td>/g;
+            const out = [];
+            let m;
+            while ((m = pairRe.exec(html))) {
+              out.push(`${m[2]} pts (${m[1]} model${m[1] === "1" ? "" : "s"})`);
             }
+            return out.join(" / ");
+          }
+
+          (async () => {
+            const datasheets = await fetchCsv("Datasheets.csv");
+            const real = datasheets.filter(d => d.name && d.link && d.legend?.toLowerCase() !== "true");
+            console.log("Total real datasheets with a link:", real.length);
+
+            // Deterministic-but-spread sample across the list rather than fully
+            // random, so re-runs are comparable: every 37th entry, ~45 units
+            // spread across the whole faction range.
+            const sample = real.filter((_, i) => i % 37 === 0);
+            console.log("Sample size:", sample.length);
+
+            const current = JSON.parse(fs.readFileSync("public/points-data.json", "utf8"));
+
+            let matched = 0, mismatched = 0, missingInCurrent = 0, missingOnWahapedia = 0;
+            const mismatches = [];
+
+            for (const d of sample) {
+              const res = await fetch(d.link, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
+              const html = await res.text();
+              const wahaPoints = extractPoints(html);
+
+              const key = normalizeName(d.name);
+              const currentEntry = current.units[key];
+
+              if (!wahaPoints) {
+                missingOnWahapedia++;
+                console.log(`NO WAHAPEDIA POINTS: ${d.name} (${d.link})`);
+                continue;
+              }
+              if (!currentEntry) {
+                missingInCurrent++;
+                console.log(`NOT IN CURRENT GW DATA (new/unmatched unit?): ${d.name} -> waha="${wahaPoints}"`);
+                continue;
+              }
+              if (currentEntry.points === wahaPoints) {
+                matched++;
+              } else {
+                mismatched++;
+                mismatches.push({ name: d.name, current: currentEntry.points, waha: wahaPoints });
+              }
+            }
+
+            console.log("\n=== RESULTS ===");
+            console.log("matched:", matched);
+            console.log("mismatched:", mismatched);
+            console.log("missing in current GW data:", missingInCurrent);
+            console.log("missing on wahapedia page:", missingOnWahapedia);
+            console.log("\n=== MISMATCH DETAILS ===");
+            console.log(JSON.stringify(mismatches, null, 2));
           })().catch(err => { console.error("FAILED:", err.message); process.exit(1); });
           '
