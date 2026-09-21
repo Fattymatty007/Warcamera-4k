@@ -1129,13 +1129,36 @@ function renderArmyListParseError(message, rawText){
   document.getElementById('listErrBackBtn').onclick = renderHome;
 }
 
+// A pasted list's own stated points for a unit ("Intercessor Squad (100
+// pts)") is never actually used for anything beyond a cosmetic default
+// folder name (see buildDefaultFolderName) — every unit gets its real cost
+// from the official points dataset at save/lookup time regardless of what
+// the list said. That means a list built with an outdated army-builder
+// (or a typo) would import silently with no hint anything was off. Checked
+// here against every points tier the unit actually has (a pasted list only
+// ever states the cost for however many models were taken, not every
+// possible tier), so only a genuine mismatch — the pasted number appearing
+// in none of them — gets flagged; a unit with no official points data at
+// all is left unflagged rather than guessed at.
+async function checkPastedPoints(u){
+  if(!u.pts) return null;
+  const official = await lookupOfficialPoints(u.n);
+  if(!official || !official.points) return null;
+  const officialNums = [...official.points.matchAll(/(\d+)\s*pts/gi)].map(m => Number(m[1]));
+  if(!officialNums.length || officialNums.includes(u.pts)) return null;
+  return official.points;
+}
+
 // The pasted list itself shows up as one more checkbox in the same list of
 // selectable units — no separate name field or second button — so adding
 // it to My Collection is exactly the same one-tap action as adding any of
 // the individual units found in it.
-function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine, detectedDetachments){
+async function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine, detectedDetachments){
   setStatus('', 'STANDBY');
+  renderLoading('CHECKING LIST', 'Verifying points costs…');
   const detachments = detectedDetachments || [];
+  const pointsChecks = await Promise.all(units.map(checkPastedPoints));
+  const mismatchCount = pointsChecks.filter(Boolean).length;
   // Detachments are listed above the units, each as its own checkbox — same
   // "found it, uncheck if wrong" pattern as a unit row, just styled like the
   // Detachment Rules cards seen elsewhere (📜 ... Rules) so it's clear these
@@ -1146,19 +1169,27 @@ function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredF
       <span class="libName" style="margin:0;">📜 ${escapeHtml(d.displayName || 'Detachment')} Rules</span>
     </label>
   `).join('');
-  const rows = units.map((u, i) => `
+  const rows = units.map((u, i) => {
+    const officialPoints = pointsChecks[i];
+    const warning = officialPoints ? `<div class="libMeta" style="color:var(--blood-bright);">⚠️ Listed as ${u.pts} pts — current cost is ${escapeHtml(officialPoints)}</div>` : '';
+    return `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" class="listUnitCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
-      <span class="libName" style="margin:0;">${escapeHtml(u.n)}</span>
+      <span style="flex:1;">
+        <div class="libName" style="margin:0;">${escapeHtml(u.n)}</div>
+        ${warning}
+      </span>
     </label>
-  `).join('');
+  `;
+  }).join('');
   const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
+  const mismatchNote = mismatchCount ? ` <strong style="color:var(--blood-bright);">${mismatchCount} unit${mismatchCount===1?'':'s'} listed at a points cost that doesn't match the current one — check the ⚠️ marked below.</strong>` : '';
   main.innerHTML = `
     <div class="stickyTopBar">
       <button class="btn primary" id="confirmListImportBtn">💾 Save to a New Folder</button>
       <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
     </div>
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.${mismatchNote}</div>
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${detachRows}
     ${rows}
