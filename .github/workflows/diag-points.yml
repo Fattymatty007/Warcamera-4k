@@ -20,19 +20,20 @@ jobs:
             return text;
           }
           (async () => {
-            // Individual datasheet page.
             const dsHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/Custodian-Guard");
-            const ptsIdx = dsHtml.search(/pts/i);
-            console.log("first \"pts\" occurrence context:", dsHtml.slice(Math.max(0, ptsIdx - 300), ptsIdx + 300));
-            // Look for any class name containing "pts" or "cost" or "points".
-            const classMatches = [...dsHtml.matchAll(/class="([^"]*(?:[Pp]ts|[Cc]ost|[Pp]oint)[^"]*)"/g)].map(m => m[1]);
-            console.log("classes mentioning pts/cost/point:", [...new Set(classMatches)]);
+            const dsIdx = dsHtml.indexOf("dsUnitCostHeader");
+            console.log("--- dsUnitCostHeader context (datasheet page) ---");
+            console.log(dsHtml.slice(Math.max(0, dsIdx - 500), dsIdx + 800));
 
-            // Faction roster/army-list page (all units for a faction at once).
             const rosterHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/");
-            const rosterPtsIdx = rosterHtml.search(/pts/i);
-            console.log("faction page first \"pts\" occurrence context:", rosterHtml.slice(Math.max(0, rosterPtsIdx - 300), rosterPtsIdx + 300));
-            const rosterClassMatches = [...rosterHtml.matchAll(/class="([^"]*(?:[Pp]ts|[Cc]ost|[Pp]oint)[^"]*)"/g)].map(m => m[1]);
-            console.log("faction page classes mentioning pts/cost/point:", [...new Set(rosterClassMatches)]);
+            const dpIdx = rosterHtml.indexOf("dpPts");
+            console.log("--- dpPts context (faction roster page), first occurrence ---");
+            console.log(rosterHtml.slice(Math.max(0, dpIdx - 800), dpIdx + 500));
+            console.log("--- how many dpPts occurrences on roster page ---");
+            console.log((rosterHtml.match(/dpPts/g) || []).length);
+            // Dump a slightly bigger block around the 2nd occurrence too, for pattern confirmation.
+            const dpIdx2 = rosterHtml.indexOf("dpPts", dpIdx + 10);
+            console.log("--- dpPts context, 2nd occurrence ---");
+            console.log(rosterHtml.slice(Math.max(0, dpIdx2 - 800), dpIdx2 + 500));
           })().catch(err => { console.error("FAILED:", err.message); process.exit(1); });
           '
