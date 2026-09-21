@@ -20,20 +20,20 @@ jobs:
             return text;
           }
           (async () => {
-            const dsHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/Custodian-Guard");
-            const dsIdx = dsHtml.indexOf("dsUnitCostHeader");
-            console.log("--- dsUnitCostHeader context (datasheet page) ---");
-            console.log(dsHtml.slice(Math.max(0, dsIdx - 500), dsIdx + 800));
-
             const rosterHtml = await fetchHtml("https://wahapedia.ru/wh40k11ed/factions/adeptus-custodes/");
-            const dpIdx = rosterHtml.indexOf("dpPts");
-            console.log("--- dpPts context (faction roster page), first occurrence ---");
-            console.log(rosterHtml.slice(Math.max(0, dpIdx - 800), dpIdx + 500));
-            console.log("--- how many dpPts occurrences on roster page ---");
-            console.log((rosterHtml.match(/dpPts/g) || []).length);
-            // Dump a slightly bigger block around the 2nd occurrence too, for pattern confirmation.
-            const dpIdx2 = rosterHtml.indexOf("dpPts", dpIdx + 10);
-            console.log("--- dpPts context, 2nd occurrence ---");
-            console.log(rosterHtml.slice(Math.max(0, dpIdx2 - 800), dpIdx2 + 500));
+            console.log("dsUnitCostHeader count on faction index page:", (rosterHtml.match(/dsUnitCostHeader/g) || []).length);
+            console.log("PriceTag count on faction index page:", (rosterHtml.match(/PriceTag/g) || []).length);
+            console.log("dsName count on faction index page:", (rosterHtml.match(/class="dsName"/g) || []).length);
+
+            // Grab context around the first dsUnitCostHeader on this page, plus
+            // whatever unit-name heading precedes it, to confirm pairing works
+            // the same way as on the single-unit page.
+            const idx = rosterHtml.indexOf("dsUnitCostHeader");
+            if (idx >= 0) {
+              console.log("--- context around first dsUnitCostHeader on faction index page ---");
+              console.log(rosterHtml.slice(Math.max(0, idx - 1500), idx + 500));
+            } else {
+              console.log("No dsUnitCostHeader found on the faction index page at all.");
+            }
           })().catch(err => { console.error("FAILED:", err.message); process.exit(1); });
           '
