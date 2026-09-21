@@ -3220,7 +3220,12 @@ async function renderBattleTracker(battleId, tab){
   const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)
     : tab === 'opponent' ? buildTeamHtml(battle.opponentUnits, 'opponent', battle.opponentActiveDetachmentId)
     : buildTrackerTabHtml(battle, tracker);
-  const showAddUnits = (tab === 'my' || tab === 'opponent') && !tracker.finished;
+  // Units are added to a side from the Battle Detail screen's own "Add
+  // Units" button, not from here — this tab's own action button is instead
+  // a quick reference to that side's Stratagems, pulled from every
+  // Detachment Rules card on its roster, since that's what actually gets
+  // reached for turn after turn during a battle.
+  const showStratagems = tab === 'my' || tab === 'opponent';
 
   main.innerHTML = `
     <div class="stickyTopBar">
@@ -3229,7 +3234,7 @@ async function renderBattleTracker(battleId, tab){
         <button class="tabBtn${tab==='opponent'?' active':''}" data-tab="opponent">${escapeHtml(battle.opponent)}</button>
         <button class="tabBtn${tab==='tracker'?' active':''}" data-tab="tracker">Tracker</button>
       </div>
-      ${showAddUnits ? `<button class="btn ghost" id="trackerAddUnitsBtn">➕ Add Units to ${tab==='my'?'My Army':escapeHtml(battle.opponent)+"'s Army"}</button>` : ''}
+      ${showStratagems ? `<button class="btn ghost" id="trackerStratagemsBtn">📜 ${tab==='my'?'Player':'Opponent'} Stratagems</button>` : ''}
     </div>
     ${tabHtml}
   `;
@@ -3246,16 +3251,8 @@ async function renderBattleTracker(battleId, tab){
     wireTeamCards(battle, battleId, tab,
       (unit) => renderRosterEntry(unit, battle, () => renderBattleTracker(battleId, tab), '← Back to Tracker'),
       () => renderBattleTracker(battleId, tab));
-    if(document.getElementById('trackerAddUnitsBtn')){
-      document.getElementById('trackerAddUnitsBtn').onclick = () => {
-        // renderBattleScanChoice normally sets this before handing off to
-        // renderBattleScanEntry — going there directly (already knowing
-        // which side, since we're on that side's own tab) needs to set it
-        // here instead, or a scanned/searched unit would never actually
-        // get added to the battle.
-        currentBattleContext = { battleId, team: tab, returnToTracker: true };
-        renderBattleScanEntry(battleId, tab);
-      };
+    if(document.getElementById('trackerStratagemsBtn')){
+      document.getElementById('trackerStratagemsBtn').onclick = () => renderTeamStratagems(battleId, tab);
     }
   }
 
@@ -3573,6 +3570,51 @@ async function renderDetachmentRulesView(card, onBack, backLabel){
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="detachRulesBackBtn" data-nav-back>${escapeHtml(backLabel || '← Back')}</button>`;
   document.getElementById('detachRulesBackBtn').onclick = onBack;
+}
+
+// ---------- SCREEN: BATTLE TRACKER — A SIDE'S STRATAGEMS (all Detachments on its roster) ----------
+// A side can carry more than one Detachment Rules card (see
+// needsDispositionChoice/hasMultipleDetachments in renderBattleDetail), so
+// this pulls every one of them rather than just the active Detachment —
+// during a battle a player can spend CP on a Stratagem from any Detachment
+// they've actually taken, not only the one governing their Deposition.
+async function renderTeamStratagems(battleId, team){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
+  const heading = team === 'my' ? 'Player Stratagems' : 'Opponent Stratagems';
+  const detachmentEntries = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => u.isDetachment);
+  const cards = await Promise.all(detachmentEntries.map(u => withFreshDetachmentData(u.card)));
+
+  const sectionsHtml = cards.map(card => {
+    const stratagemsHtml = (card.stratagems || []).map(s => `
+      <div class="abilityItem">
+        <div class="abilityName">${escapeHtml(s.name||'')}${s.cpCost ? ' — '+escapeHtml(s.cpCost)+' CP' : ''}</div>
+        <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(s.description))}</div>
+      </div>
+    `).join('') || `<div class="loadSub">No stratagems listed.</div>`;
+    return `
+      <div class="section">
+        <div class="sectionTitle">${escapeHtml(card.displayName || 'Detachment')}${card.faction ? ' · '+escapeHtml(card.faction) : ''}</div>
+        ${stratagemsHtml}
+      </div>
+    `;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="sheet">
+      <div class="sheetHead">
+        <div class="sheetName">${escapeHtml(heading)}</div>
+        <div class="sheetFaction">${escapeHtml(teamLabel)}</div>
+      </div>
+      ${cards.length ? sectionsHtml : `<div class="noteBox">No Detachment Rules card has been added to ${escapeHtml(teamLabel)} yet — save one from a datasheet search or My Collection to see its stratagems here.</div>`}
+      ${cards.length ? '<div class="noteBox">Rules text from Wahapedia’s public 11th-edition data export. Always confirm against your army’s official app or GW source before a tournament.</div>' : ''}
+    </div>
+  `;
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="teamStratagemsBackBtn" data-nav-back>← Back to Tracker</button>`;
+  document.getElementById('teamStratagemsBackBtn').onclick = () => renderBattleTracker(battleId, team);
 }
 
 // Same card view as above, but reached from the search box instead of an
