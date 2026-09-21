@@ -1,0 +1,50 @@
+name: Diagnostic - Inspect Wahapedia points columns
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Inspect CSVs
+        run: |
+          node -e '
+          async function fetchCsv(name) {
+            const res = await fetch("https://wahapedia.ru/wh40k11ed/" + name, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
+            const text = await res.text();
+            const lines = text.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.length > 0);
+            const headers = lines[0].split("|");
+            const rows = lines.slice(1).map(line => {
+              const cells = line.split("|");
+              const row = {};
+              headers.forEach((h, i) => { row[h] = (cells[i] || "").trim(); });
+              return row;
+            });
+            console.log(`\n=== ${name}: ${rows.length} rows ===`);
+            console.log("columns:", headers.join(", "));
+            return rows;
+          }
+          (async () => {
+            const models = await fetchCsv("Datasheets_models.csv");
+            console.log("--- sample Datasheets_models rows ---");
+            console.log(JSON.stringify(models.slice(0, 8), null, 2));
+
+            const datasheets = await fetchCsv("Datasheets.csv");
+            console.log("--- sample Datasheets rows (first 3, all columns) ---");
+            console.log(JSON.stringify(datasheets.slice(0, 3), null, 2));
+
+            // Check whether a dedicated points-like csv exists at all.
+            for (const candidate of ["Points.csv", "Datasheets_points.csv", "Points_values.csv"]) {
+              try {
+                const res = await fetch("https://wahapedia.ru/wh40k11ed/" + candidate, { headers: { "User-Agent": "Mozilla/5.0 (compatible; diag-bot/1.0)" } });
+                console.log(`${candidate}: HTTP ${res.status}`);
+              } catch (e) {
+                console.log(`${candidate}: ERROR ${e.message}`);
+              }
+            }
+          })().catch(err => { console.error("FAILED:", err.message); process.exit(1); });
+          '
