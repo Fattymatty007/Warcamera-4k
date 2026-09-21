@@ -1171,7 +1171,7 @@ async function renderArmyListConfirm(units, rawText, title, detachmentHints, dec
   `).join('');
   const rows = units.map((u, i) => {
     const officialPoints = pointsChecks[i];
-    const warning = officialPoints ? `<div class="libMeta" style="color:var(--blood-bright);">⚠️ Listed as ${u.pts} pts — current cost is ${escapeHtml(officialPoints)}</div>` : '';
+    const warning = officialPoints ? `<div class="libMeta" style="color:var(--blood-bright);">⚠️ Listed as ${u.pts} pts — current cost is ${escapeHtml(officialPoints)} (may be a paid Enhancement instead of a mistake)</div>` : '';
     return `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" class="listUnitCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
@@ -1744,6 +1744,51 @@ async function removeUnitFromBattle(battleId, team, unitId){
   const key = team === 'my' ? 'myUnits' : 'opponentUnits';
   battle[key] = battle[key].filter(u => u.id !== unitId);
   await saveBattlesList(list);
+}
+
+// A roster-entry viewer (renderBattleUnitView) only ever gets handed the
+// battle and the unit itself, not which side it's on — derived here from
+// the battle's own two rosters instead of threading a team parameter
+// through every caller, since the id is already unique to one side or
+// the other.
+function findUnitTeam(battle, unitId){
+  if((battle.myUnits||[]).some(u => u.id === unitId)) return 'my';
+  if((battle.opponentUnits||[]).some(u => u.id === unitId)) return 'opponent';
+  return null;
+}
+
+// A unit's chosen Enhancement — one of its Detachment's paid upgrades,
+// only a CHARACTER can take one, and it's a property of this specific
+// roster entry (the same base unit could carry a different one, or none,
+// in a different battle) rather than the saved datasheet itself. Stored
+// as { name, cost, description } straight from the Detachment's own
+// enhancements list, or null to clear it.
+async function setUnitEnhancement(battleId, team, unitId, enhancement){
+  const list = await loadBattles();
+  const battle = list.find(b => b.id === battleId);
+  if(!battle) return;
+  const key = team === 'my' ? 'myUnits' : 'opponentUnits';
+  const unit = (battle[key]||[]).find(u => u.id === unitId);
+  if(!unit) return;
+  if(enhancement) unit.enhancement = enhancement;
+  else delete unit.enhancement;
+  await saveBattlesList(list);
+}
+
+// Every Enhancement available to a side, pooled across every Detachment
+// Rules card on its roster (a side can carry more than one — see
+// renderTeamStratagems), each refreshed via the usual self-heal so a
+// stale saved Detachment doesn't offer an outdated Enhancement list.
+async function loadSideEnhancements(battle, team){
+  const detachmentEntries = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => u.isDetachment);
+  const cards = await Promise.all(detachmentEntries.map(u => withFreshDetachmentData(u.card)));
+  const flat = [];
+  for(const card of cards){
+    for(const e of (card.enhancements||[])){
+      flat.push({ name: e.name, cost: e.cost, description: e.description, detachmentName: card.displayName });
+    }
+  }
+  return flat;
 }
 
 // ---------- BATTLE TRACKER (live in-game VP/CP/secondaries/turn) ----------
@@ -2850,10 +2895,33 @@ async function renderBattleUnitView(battle, unit, onBack, backLabel){
     renderTextListView(unit, onBack, backLabel);
     return;
   }
+  const team = findUnitTeam(battle, unit.id);
   unit = await withFreshDatasheetFields(unit);
+  // Only a CHARACTER can be given an Enhancement, and only when this view
+  // was reached from an actual battle roster (team resolved) — a saved
+  // Collection unit isn't tied to any particular Detachment's own
+  // Enhancement list the way a roster entry is.
+  const isCharacter = (unit.keywords||[]).some(k => (k||'').toUpperCase() === 'CHARACTER');
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>`;
+  footer.innerHTML = `
+    ${(team && isCharacter) ? `<button class="btn gold" id="enhanceBtn">🎖 ${unit.enhancement ? 'Change' : 'Add'} Enhancement</button>` : ''}
+    <button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>
+  `;
+  if(document.getElementById('enhanceBtn')){
+    // Re-fetches rather than reusing the battle/unit already in this
+    // closure — those are a snapshot from before the Enhancement was
+    // just saved, so reopening straight from them would show the old,
+    // still-unenhanced version of this same screen.
+    const reopenThisUnit = async () => {
+      const freshBattle = await getBattleById(battle.id);
+      if(!freshBattle){ onBack(); return; }
+      const freshUnit = (team === 'my' ? freshBattle.myUnits : freshBattle.opponentUnits).find(u => u.id === unit.id);
+      if(!freshUnit){ onBack(); return; }
+      renderBattleUnitView(freshBattle, freshUnit, onBack, backLabel);
+    };
+    document.getElementById('enhanceBtn').onclick = () => renderAssignEnhancement(battle.id, team, unit.id, reopenThisUnit);
+  }
   document.getElementById('unitBackBtn').onclick = onBack;
 }
 
@@ -3652,6 +3720,46 @@ async function renderTeamStratagems(battleId, team){
   document.getElementById('teamStratagemsBackBtn').onclick = () => renderBattleTracker(battleId, team);
 }
 
+// ---------- SCREEN: BATTLE — ASSIGN AN ENHANCEMENT TO A CHARACTER ----------
+async function renderAssignEnhancement(battleId, team, unitId, onDone){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  const unit = (team === 'my' ? battle.myUnits : battle.opponentUnits).find(u => u.id === unitId);
+  if(!unit){ onDone(); return; }
+  const enhancements = await loadSideEnhancements(battle, team);
+
+  const rows = enhancements.map((e, i) => `
+    <button class="btn gold" data-enh-idx="${i}" style="display:block; width:100%; margin-bottom:8px; text-align:left;">
+      ${escapeHtml(e.name || 'Enhancement')}${e.cost ? ' — '+escapeHtml(e.cost)+' pts' : ''}
+      <div style="font-size:10px; color:var(--muted); text-transform:none; letter-spacing:normal; margin-top:2px;">${escapeHtml(e.detachmentName || '')}</div>
+    </button>
+  `).join('');
+  const emptyNote = enhancements.length ? '' : ` No Enhancements available — add a Detachment Rules card to ${team==='my'?'My Army':"the opponent's army"} first.`;
+
+  main.innerHTML = `
+    <div class="stickyTopBar">
+      ${unit.enhancement ? '<button class="btn ghost" id="removeEnhBtn">✕ Remove Current Enhancement</button>' : ''}
+      <button class="btn ghost" id="cancelEnhBtn" data-nav-back>← Cancel</button>
+    </div>
+    <div class="noteBox">Give ${escapeHtml(unit.unit_name || 'this unit')} an Enhancement.${emptyNote}</div>
+    ${rows}
+  `;
+  enhancements.forEach((e, i) => {
+    document.querySelector(`[data-enh-idx="${i}"]`).onclick = async () => {
+      await setUnitEnhancement(battleId, team, unitId, { name: e.name, cost: e.cost, description: e.description });
+      onDone();
+    };
+  });
+  if(unit.enhancement){
+    document.getElementById('removeEnhBtn').onclick = async () => {
+      await setUnitEnhancement(battleId, team, unitId, null);
+      onDone();
+    };
+  }
+  document.getElementById('cancelEnhBtn').onclick = onDone;
+}
+
 // Same card view as above, but reached from the search box instead of an
 // already-saved folder/collection entry — so it's not saved yet, and gets
 // Save/Send actions instead of a plain back link. Actions sit above the
@@ -4029,13 +4137,39 @@ function buildDatasheetSheetHtml(d){
   const keywordChips = (d.keywords||[]).map(k=>`<span class="chip">${escapeHtml(k)}</span>`).join('');
   const factionChips = (d.faction_keywords||[]).map(k=>`<span class="chip">${escapeHtml(k)}</span>`).join('');
 
+  // A saved unit's own .points is whatever was true at lookup time — the
+  // full set of model-count tiers, not the one specific tier a player
+  // actually took — so there's no single number here to add an
+  // Enhancement's cost onto reliably. Shown as a separate, clearly-labeled
+  // add-on instead of attempted arithmetic, so the base cost and the
+  // Enhancement's own cost both stay visibly correct rather than the
+  // total silently looking "off" against what's written on an army list.
+  // Appended inside the same .sheetPoints box (which is itself
+  // position:absolute) rather than as a second sibling of it — that box's
+  // own height already varies a lot (a multi-tier cost can wrap to
+  // several lines), so a second absolutely-positioned box at a fixed
+  // offset would overlap it for plenty of units instead of sitting
+  // cleanly below.
+  const enhancementNote = d.enhancement ? `<div style="color:var(--brass); margin-top:4px;">🎖 + ${escapeHtml(d.enhancement.name||'Enhancement')}${d.enhancement.cost ? ' ('+escapeHtml(d.enhancement.cost)+' pts)' : ''}</div>` : '';
+  const enhancementSection = d.enhancement ? `
+    <div class="section">
+      <div class="sectionTitle">Enhancement</div>
+      <div class="abilityItem">
+        <div class="abilityName">${escapeHtml(d.enhancement.name||'')}${d.enhancement.cost ? ' — +'+escapeHtml(d.enhancement.cost)+' pts' : ''}</div>
+        <div class="abilityDesc" style="white-space:pre-wrap;">${escapeHtml(htmlToPlainText(d.enhancement.description))}</div>
+      </div>
+    </div>
+  ` : '';
+
   return `
     <div class="sheet">
       <div class="sheetHead" style="position:relative;">
         <div class="sheetName">${escapeHtml(d.unit_name||'Unknown Unit')}</div>
         <div class="sheetFaction">${escapeHtml(d.faction||'')}</div>
-        <div class="sheetPoints">${escapeHtml(d.points||'')}${d.points_uncertain ? '<span class="ptsFlag">*</span>' : ''}</div>
+        <div class="sheetPoints">${escapeHtml(d.points||'')}${d.points_uncertain ? '<span class="ptsFlag">*</span>' : ''}${enhancementNote}</div>
       </div>
+
+      ${enhancementSection}
 
       ${buildStatGridHtml(d.stats)}
 
