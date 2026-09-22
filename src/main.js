@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import { callGemini } from './api.js';
 import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList } from './storage.js';
+import { requireLicense } from './licenseGate.js';
 
 // Date.now() alone isn't unique enough for ids assigned in a tight loop
 // (e.g. importing several units from a folder into a battle back to back)
@@ -4422,6 +4423,8 @@ window.addEventListener('popstate', () => {
   setTimeout(() => { suppressHistoryPush = false; }, 50);
 });
 
-// init
-renderHome();
-syncMainObserverEffects(); // observer callbacks are async — set the correct initial state synchronously too, so the "✕" is never visible even for a frame on first load
+// init — behind the membership license gate
+requireLicense('WarCamera 4k').then(() => {
+  renderHome();
+  syncMainObserverEffects(); // observer callbacks are async — set the correct initial state synchronously too, so the "✕" is never visible even for a frame on first load
+});
