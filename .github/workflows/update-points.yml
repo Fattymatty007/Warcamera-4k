@@ -1,4 +1,4 @@
-name: Update Points from Wahapedia
+name: Update Points from BSData (MFM)
 
 on:
   schedule:
@@ -31,7 +31,7 @@ jobs:
             echo "No changes to points data."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "Update points data from Wahapedia"
+            git commit -m "Update points data from BSData wh40k-11e-mfm"
             git push
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
