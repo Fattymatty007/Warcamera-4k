@@ -148,16 +148,17 @@ function confirmSlideDelete(title, message, onConfirm){
 const VISION_MODEL = 'gemini-flash-latest';
 const TEXT_MODEL = 'gemini-flash-lite-latest';
 
-// Official points data, extracted from Wahapedia's public 11th-edition data
-// export by .github/workflows/update-points.yml (see scripts/fetch-points.mjs)
-// and served as a static file alongside the app — no worker/Gemini call
-// involved. Preferred over the model's own points guess whenever a unit
-// matches, since these published points are current and the model's
-// training data inevitably lags balance updates. Previously scraped from
-// Games Workshop's own Munitorum Field Manual web app directly; switched
-// to this same-source-as-everything-else approach after confirming its
-// accuracy against that GW-sourced data (see fetch-points.mjs for the
-// comparison this was based on).
+// Official points data, extracted from the BSData community's Munitorum
+// Field Manual snapshots (github.com/BSData/wh40k-11e-mfm — the same
+// BSData data New Recruit's lists are built from, parsed from GW's
+// official manual) by .github/workflows/update-points.yml (see
+// scripts/fetch-points.mjs) and served as a static file alongside the
+// app — no worker/Gemini call involved. Preferred over the model's own
+// points guess whenever a unit matches, since these published points are
+// current and the model's training data inevitably lags balance updates.
+// Previously scraped from Wahapedia's per-datasheet points tables;
+// switched 2026-10-10 because Wahapedia's 11e costs lag balance updates
+// (see fetch-points.mjs).
 let pointsDataPromise = null;
 function loadPointsData(){
   if(!pointsDataPromise){
@@ -1130,25 +1131,12 @@ function renderArmyListParseError(message, rawText){
   document.getElementById('listErrBackBtn').onclick = renderHome;
 }
 
-// A pasted list's own stated points for a unit ("Intercessor Squad (100
-// pts)") is never actually used for anything beyond a cosmetic default
-// folder name (see buildDefaultFolderName) — every unit gets its real cost
-// from the official points dataset at save/lookup time regardless of what
-// the list said. That means a list built with an outdated army-builder
-// (or a typo) would import silently with no hint anything was off. Checked
-// here against every points tier the unit actually has (a pasted list only
-// ever states the cost for however many models were taken, not every
-// possible tier), so only a genuine mismatch — the pasted number appearing
-// in none of them — gets flagged; a unit with no official points data at
-// all is left unflagged rather than guessed at.
-async function checkPastedPoints(u){
-  if(!u.pts) return null;
-  const official = await lookupOfficialPoints(u.n);
-  if(!official || !official.points) return null;
-  const officialNums = [...official.points.matchAll(/(\d+)\s*pts/gi)].map(m => Number(m[1]));
-  if(!officialNums.length || officialNums.includes(u.pts)) return null;
-  return official.points;
-}
+// Points on a pasted list are the player's own and are never checked or
+// corrected against the official points dataset (Matt's call, 2026-10-10:
+// Wahapedia's points lag behind current balance updates too often, so the
+// app flagging "wrong" costs was crying wolf). Whatever cost a unit was
+// listed at is the cost it keeps — see runArmyListImport, which stamps the
+// pasted number onto the saved datasheet instead of the dataset's.
 
 // The pasted list itself shows up as one more checkbox in the same list of
 // selectable units — no separate name field or second button — so adding
@@ -1156,10 +1144,7 @@ async function checkPastedPoints(u){
 // the individual units found in it.
 async function renderArmyListConfirm(units, rawText, title, detachmentHints, declaredFactionLine, detectedDetachments){
   setStatus('', 'STANDBY');
-  renderLoading('CHECKING LIST', 'Verifying points costs…');
   const detachments = detectedDetachments || [];
-  const pointsChecks = await Promise.all(units.map(checkPastedPoints));
-  const mismatchCount = pointsChecks.filter(Boolean).length;
   // Detachments are listed above the units, each as its own checkbox — same
   // "found it, uncheck if wrong" pattern as a unit row, just styled like the
   // Detachment Rules cards seen elsewhere (📜 ... Rules) so it's clear these
@@ -1170,27 +1155,22 @@ async function renderArmyListConfirm(units, rawText, title, detachmentHints, dec
       <span class="libName" style="margin:0;">📜 ${escapeHtml(d.displayName || 'Detachment')} Rules</span>
     </label>
   `).join('');
-  const rows = units.map((u, i) => {
-    const officialPoints = pointsChecks[i];
-    const warning = officialPoints ? `<div class="libMeta" style="color:var(--blood-bright);">⚠️ Listed as ${u.pts} pts — current cost is ${escapeHtml(officialPoints)} (may be a paid Enhancement instead of a mistake)</div>` : '';
-    return `
+  const rows = units.map((u, i) => `
     <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
       <input type="checkbox" class="listUnitCheck" data-idx="${i}" checked style="width:18px; height:18px; flex-shrink:0;"/>
       <span style="flex:1;">
         <div class="libName" style="margin:0;">${escapeHtml(u.n)}</div>
-        ${warning}
+        ${u.pts ? `<div class="libMeta">${u.pts} pts</div>` : ''}
       </span>
     </label>
-  `;
-  }).join('');
+  `).join('');
   const detachNote = detachments.length ? ` and ${detachments.length} Detachment${detachments.length===1?'':'s'}` : '';
-  const mismatchNote = mismatchCount ? ` <strong style="color:var(--blood-bright);">${mismatchCount} unit${mismatchCount===1?'':'s'} listed at a points cost that doesn't match the current one — check the ⚠️ marked below.</strong>` : '';
   main.innerHTML = `
     <div class="stickyTopBar">
       <button class="btn primary" id="confirmListImportBtn">💾 Save to a New Folder</button>
       <button class="btn ghost" id="cancelListImportBtn" data-nav-back>✕ Cancel</button>
     </div>
-    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.${mismatchNote}</div>
+    <div class="noteBox">Found ${units.length} unit${units.length===1?'':'s'}${detachNote} in your list. Uncheck anything that isn't right — everything gets saved into one new Collection folder (each checked unit freshly looked up, same as a name search, plus the full list text), ready to add to a battle in one action later.</div>
     <input type="text" id="folderNameInput" placeholder="Name this folder (optional)" />
     ${detachRows}
     ${rows}
@@ -1429,6 +1409,14 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
     renderLoading('IMPORTING LIST', `Looking up ${i+1} of ${uniqueUnits.length}: ${uniqueUnits[i].n}…`);
     try{
       const d = await lookupDatasheetRaw(uniqueUnits[i].n, declaredFaction, false);
+      // The pasted list's own stated points win over the looked-up
+      // datasheet's — a player's list is never corrected against the
+      // official points dataset (see the note above renderArmyListConfirm).
+      // Units the list gave no cost for keep whatever the lookup returned.
+      if(uniqueUnits[i].pts){
+        d.points = uniqueUnits[i].pts + ' pts';
+        d.points_uncertain = false;
+      }
       datasheets.push(d);
     }catch(err){
       failed.push(uniqueUnits[i].n);
