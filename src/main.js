@@ -254,12 +254,19 @@ function loadDetachmentsData(){
 // in fetch-detachments.mjs) — it's the same 5-value lookup either way.
 let missionsDataPromise = null;
 function loadMissionsData(){
-  if(!missionsDataPromise){
-    missionsDataPromise = fetch('/missions-data.json')
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  }
-  return missionsDataPromise;
+  if(missionsDataPromise) return missionsDataPromise;
+  const attempt = fetch('/missions-data.json')
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null);
+  missionsDataPromise = attempt;
+  // Don't let one failed fetch poison the whole session: this loader used
+  // to cache a null result forever, so a single network hiccup (flaky
+  // venue or home Wi-Fi) left "Could not load mission data" on screen
+  // until a full app restart even after the connection recovered. Reset
+  // on failure so the next screen open retries — same pattern the
+  // secondary-missions loader already uses.
+  attempt.then(result => { if(!result) missionsDataPromise = null; });
+  return attempt;
 }
 
 function findPrimaryMission(missionsData, playerDisposition, opponentDisposition){
