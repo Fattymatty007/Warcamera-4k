@@ -84,6 +84,18 @@ function dispositionKey(displayName) {
   return normalizeName(displayName).replace(/\s+/g, '');
 }
 
+// Reads a Force Disposition icon div's attributes (the disposition class
+// may be followed by more classes, e.g. "TakeAndHold2 ca7FdTip") and
+// returns the disposition's display name, or null if unrecognized.
+function dispositionFromIcon(iconAttrs) {
+  if (!iconAttrs) return null;
+  const classMatch = iconAttrs.match(/class="([A-Za-z]+2)(?:\s|")/);
+  if (classMatch && DISPOSITION_BY_CLASS[classMatch[1]]) return DISPOSITION_BY_CLASS[classMatch[1]];
+  const fdMatch = iconAttrs.match(/data-fd="([A-Za-z]+)"/);
+  if (fdMatch && DISPOSITION_BY_CLASS[fdMatch[1] + '2']) return DISPOSITION_BY_CLASS[fdMatch[1] + '2'];
+  return null;
+}
+
 // Each caPmScore line is a single, non-nested <div> (only <span>s inside),
 // so a non-greedy match safely stops at its own closing tag — same for
 // caPmHdr/caPmWhen/caActRow below. Scanning the whole card body with one
@@ -146,10 +158,14 @@ function parseCard(cardHtml) {
   }
 
   const fdBlock = cardHtml.slice(fdStart);
-  const playerClassMatch = fdBlock.match(/class="ca7FdPlayer"><div class="([A-Za-z]+2)">/);
-  const oppClassMatch = fdBlock.match(/class="ca7FdOpp"><div class="ca7FdLbl">Opponent<\/div><div class="([A-Za-z]+2)">/);
-  const playerDisposition = playerClassMatch ? DISPOSITION_BY_CLASS[playerClassMatch[1]] : null;
-  const opponentDisposition = oppClassMatch ? DISPOSITION_BY_CLASS[oppClassMatch[1]] : null;
+  // The disposition icon div used to carry ONLY the disposition class
+  // (class="TakeAndHold2"); Wahapedia now emits extra classes and a data
+  // attribute too (class="TakeAndHold2 ca7FdTip" data-fd="TakeAndHold").
+  // The old exact-match regexes silently failed on every card when that
+  // changed, producing a missions file with zero missions — so read the
+  // disposition class as the first class token, with data-fd as fallback.
+  const playerDisposition = dispositionFromIcon(fdBlock.match(/class="ca7FdPlayer"><div ([^>]+)>/)?.[1]);
+  const opponentDisposition = dispositionFromIcon(fdBlock.match(/class="ca7FdOpp"><div class="ca7FdLbl">Opponent<\/div><div ([^>]+)>/)?.[1]);
   if (!playerDisposition || !opponentDisposition) return null;
 
   return {
@@ -183,7 +199,13 @@ async function main() {
 
   console.log('Primary Missions parsed:', missions.length, '(expect 25 — 5 dispositions x 5 opponent dispositions)');
   if (missions.length !== 25) {
-    console.error(`Unexpected mission count (${missions.length}, expected 25) — page layout likely changed; check the parser.`);
+    // Hard-fail WITHOUT writing the file. An earlier version only logged
+    // this and wrote anyway, so when Wahapedia changed its icon markup the
+    // weekly workflow happily committed an EMPTY missions array and the
+    // app showed "No Primary Mission could be determined" for every game.
+    // The workflow runs this script as its own step, so exiting non-zero
+    // here stops the bad commit entirely.
+    throw new Error(`Unexpected mission count (${missions.length}, expected 25) — page layout likely changed; refusing to overwrite missions-data.json.`);
   }
 
   const byKey = {};
@@ -193,6 +215,9 @@ async function main() {
       console.error(`Duplicate (player, opponent) pair for key ${key}: ${byKey[key]} and ${mission.displayName}`);
     }
     byKey[key] = mission.displayName;
+  }
+  if (Object.keys(byKey).length !== 25) {
+    throw new Error(`Only ${Object.keys(byKey).length} unique (player, opponent) pairs parsed, expected 25 — refusing to overwrite missions-data.json.`);
   }
 
   const out = {
