@@ -101,6 +101,7 @@ async function main() {
   );
 
   const factionsOut = {};
+  const boardingActionsKeys = new Set();
   let detachmentCount = 0;
 
   for (const d of detachments) {
@@ -149,8 +150,28 @@ async function main() {
     if (!factionsOut[factionKey]) factionsOut[factionKey] = { displayName: factionName, detachments: {} };
     const detachmentKey = normalizeName(record.displayName);
     if (!detachmentKey) continue;
+    // Wahapedia lists a few detachments twice under the same name: the
+    // regular detachment and a Boarding Actions variant (a separate game
+    // mode) — Daemonic Incursion is the known case. Keyed by name only,
+    // the later row used to silently overwrite the earlier one, so the app
+    // ended up holding the Boarding Actions card — which has NO Force
+    // Disposition, breaking the Primary Mission lookup for anyone running
+    // that detachment (and showing the wrong ability text besides).
+    // Always keep the regular detachment's record when both exist.
+    const isBoardingActions = (d.type || '').startsWith('Boarding Actions');
+    const mapKey = factionKey + '|' + detachmentKey;
+    const existing = factionsOut[factionKey].detachments[detachmentKey];
+    if (existing) {
+      const existingIsBoarding = boardingActionsKeys.has(mapKey);
+      if (!existingIsBoarding || isBoardingActions) continue; // regular already kept, or another BA dupe — keep what's there
+      // Existing record is the Boarding Actions variant and this row is
+      // the regular detachment — fall through and replace it.
+      boardingActionsKeys.delete(mapKey);
+    } else if (isBoardingActions) {
+      boardingActionsKeys.add(mapKey);
+    }
     factionsOut[factionKey].detachments[detachmentKey] = record;
-    detachmentCount++;
+    if (!existing) detachmentCount++;
   }
 
   const factionCount = Object.keys(factionsOut).length;
