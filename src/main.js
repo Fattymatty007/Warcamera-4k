@@ -56,14 +56,17 @@ function attachLongPress(el, onLongPress, duration = 550){
   return () => fired;
 }
 
-// A "slide to delete" confirm bar shown before anything actually gets
-// deleted — dragging the thumb the full length of the track (not just
-// tapping it) takes a little deliberate effort, so a small Remove button
-// brushed by accident in a tightly packed list can't silently delete
-// something. Releasing short of the end snaps the thumb back with nothing
-// deleted; onConfirm only ever fires once the thumb reaches the far end.
-// message is optional (omit for a plain "remove this?" with no extra note).
-function confirmSlideDelete(title, message, onConfirm){
+// A "slide to confirm" bar shown before an irreversible action —
+// dragging the thumb the full length of the track (not just tapping it)
+// takes a little deliberate effort, so a small button brushed by
+// accident in a tightly packed list can't silently trigger it.
+// Releasing short of the end snaps the thumb back with nothing done;
+// onConfirm only ever fires once the thumb reaches the far end.
+// message is optional. opts can override the track label and thumb icon
+// (the defaults are the original delete wording/icon).
+function confirmSlideAction(title, message, opts, onConfirm){
+  const slideLabel = (opts && opts.label) || 'Slide to delete →';
+  const slideIcon = (opts && opts.icon) || '🗑';
   const overlay = document.createElement('div');
   overlay.className = 'modalOverlay';
   overlay.innerHTML = `
@@ -72,8 +75,8 @@ function confirmSlideDelete(title, message, onConfirm){
       ${message ? `<div class="modalBody">${escapeHtml(message)}</div>` : ''}
       <div class="slideDeleteTrack" id="slideDeleteTrack">
         <div class="slideDeleteFill" id="slideDeleteFill"></div>
-        <div class="slideDeleteLabel" id="slideDeleteLabel">Slide to delete →</div>
-        <div class="slideDeleteThumb" id="slideDeleteThumb">🗑</div>
+        <div class="slideDeleteLabel" id="slideDeleteLabel">${escapeHtml(slideLabel)}</div>
+        <div class="slideDeleteThumb" id="slideDeleteThumb">${slideIcon}</div>
       </div>
       <button class="btn ghost" id="slideDeleteCancelBtn" style="margin-top:10px;">✕ Cancel</button>
     </div>
@@ -131,6 +134,12 @@ function confirmSlideDelete(title, message, onConfirm){
     window.removeEventListener('mouseup', onUp);
     overlay.remove();
   }
+}
+
+// The original slide-to-delete confirm (Remove buttons in rosters, the
+// collection, and custom models) — a preset of confirmSlideAction.
+function confirmSlideDelete(title, message, onConfirm){
+  confirmSlideAction(title, message, null, onConfirm);
 }
 
 // Two model tiers, picked per call via the X-Gemini-Model header (see
@@ -1814,7 +1823,7 @@ async function loadSideEnhancements(battle, team){
 function ensureTracker(battle){
   if(!battle.tracker){
     battle.tracker = {
-      started: false, finished: false, turn: 1,
+      started: false, finished: false, concededBy: null, turn: 1,
       my: { cp: 0, primaryVPByTurn: {}, secondaries: [] },
       opponent: { cp: 0, primaryVPByTurn: {}, secondaries: [] },
     };
@@ -2995,11 +3004,17 @@ function buildSideTrackerHtml(side, team, label, turn){
 function buildTrackerTabHtml(battle, tracker){
   if(tracker.finished){
     const myTotal = totalVP(tracker.my), oppTotal = totalVP(tracker.opponent);
-    const verdict = myTotal === oppTotal ? 'Tied Game' : myTotal > oppTotal ? '🏆 You Win!' : `🏆 ${escapeHtml(battle.opponent)} Wins`;
+    // A concession forfeits the game regardless of the score — the VP
+    // totals themselves are still shown exactly as they stood when the
+    // game ended, only the verdict follows the concession.
+    const verdict = tracker.concededBy === 'opponent' ? '🏆 You Win!'
+      : tracker.concededBy === 'my' ? `🏆 ${escapeHtml(battle.opponent)} Wins`
+      : myTotal === oppTotal ? 'Tied Game' : myTotal > oppTotal ? '🏆 You Win!' : `🏆 ${escapeHtml(battle.opponent)} Wins`;
     return `
       <div class="noteBox" style="text-align:center; font-size:14px; letter-spacing:2px; color:var(--brass); text-transform:uppercase; border:none;">Game Complete</div>
       <div class="vpBoard"><div class="vpSide"><div class="vpLabel">My Army</div><div class="vpTotal">${myTotal}</div></div><div class="vpVs">VS</div><div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${oppTotal}</div></div></div>
       <div class="noteBox" style="text-align:center; font-size:16px; color:var(--parchment); border:none;">${verdict}</div>
+      ${tracker.concededBy ? `<div class="noteBox" style="text-align:center; font-size:13px; color:var(--parchment); border:none;">🏳 ${tracker.concededBy === 'my' ? 'You' : escapeHtml(battle.opponent)} conceded — final scores locked as they stood.</div>` : ''}
       ${buildSideTrackerReadOnlyHtml(tracker.my, 'My Army')}
       ${buildSideTrackerReadOnlyHtml(tracker.opponent, battle.opponent)}
     `;
@@ -3016,6 +3031,7 @@ function buildTrackerTabHtml(battle, tracker){
     ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`, tracker.turn)}
     <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
     ${tracker.turn > 1 ? '<button class="btn ghost" id="prevTurnBtn" style="margin-top:8px; font-size:11px; padding:12px 18px;">⬅ Previous Turn</button>' : ''}
+    <button class="btn ghost" id="concedeBtn" style="margin-top:8px;">🏳 Concede Game</button>
   `;
 }
 
@@ -3446,6 +3462,9 @@ async function renderBattleTracker(battleId, tab){
         main.scrollTop = 0;
       };
     }
+    if(document.getElementById('concedeBtn')){
+      document.getElementById('concedeBtn').onclick = () => renderConcedePicker(battleId);
+    }
   }
 
   // No visible footer while actively in a battle — the header's "✕" already
@@ -3457,6 +3476,42 @@ async function renderBattleTracker(battleId, tab){
   footer.style.display = 'none';
   main.insertAdjacentHTML('beforeend', `<button id="trackerBackTarget" data-nav-back style="display:none;"></button>`);
   document.getElementById('trackerBackTarget').onclick = () => renderBattleDetail(battleId);
+}
+
+// Concession flow (Matt's request): the Concede button on the tracker
+// asks WHO is conceding first, then puts up the same slide-to-confirm bar
+// the Remove buttons use — a deliberate full drag, not a stray tap — with
+// concession wording. Confirming finishes the battle exactly like Finish
+// Game (finished = true, so VP/CP/secondaries lock as they stand) and
+// additionally records who conceded for the finished tracker's verdict
+// and concession note.
+async function renderConcedePicker(battleId){
+  setStatus('', 'STANDBY');
+  const battle = await getBattleById(battleId);
+  if(!battle){ renderBattleList(); return; }
+  main.innerHTML = `
+    <div class="errBox">
+      <div class="errTitle">Concede the Game?</div>
+      Who is conceding? The game ends immediately and the scores lock in exactly as they stand — nothing on the tracker can be changed afterwards.
+    </div>
+    <button class="btn primary" id="concedeMineBtn" style="margin-top:14px;">🏳 I Concede</button>
+    <button class="btn primary" id="concedeOppBtn" style="margin-top:8px;">🏳 ${escapeHtml(battle.opponent)} Concedes</button>
+    <button class="btn ghost" id="cancelConcedeBtn" data-nav-back>← Cancel</button>
+  `;
+  document.getElementById('cancelConcedeBtn').onclick = () => renderBattleTracker(battleId, 'tracker');
+  const askSlide = (team) => {
+    confirmSlideAction(
+      team === 'my' ? 'You concede?' : `${battle.opponent} concedes?`,
+      'This ends the game now and locks in the final VP, CP, and secondaries for both sides, exactly like finishing the game.',
+      { label: 'Slide to concede →', icon: '🏳' },
+      async () => {
+        await updateBattleTracker(battleId, t => { t.finished = true; t.concededBy = team; });
+        renderBattleTracker(battleId, 'tracker');
+      }
+    );
+  };
+  document.getElementById('concedeMineBtn').onclick = () => askSlide('my');
+  document.getElementById('concedeOppBtn').onclick = () => askSlide('opponent');
 }
 
 function renderFinishGameConfirm(battleId){
