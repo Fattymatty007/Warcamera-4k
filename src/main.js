@@ -3001,6 +3001,61 @@ function buildSideTrackerHtml(side, team, label, turn){
   `;
 }
 
+// Which turn the finished tracker's Turn Review is showing — held per
+// battle so hopping between battles doesn't carry one game's review
+// turn into another's.
+let turnReviewState = { battleId: null, turn: 1 };
+function currentReviewTurn(battleId, maxTurn){
+  if(turnReviewState.battleId !== battleId) turnReviewState = { battleId, turn: 1 };
+  return Math.max(1, Math.min(maxTurn, turnReviewState.turn));
+}
+
+// End-of-battle turn-by-turn review (Matt's request): everything shown
+// here is reconstructed from data the tracker already records as the
+// game goes — Primary VP is stored per turn (primaryVPByTurn) and every
+// achieved secondary is stamped with the turn it was scored on (see
+// achieveSecondaryCard) — so finished battles from before this feature
+// existed review correctly too. CP is only ever a single running total,
+// so it stays on the Final summary above rather than being faked per
+// turn. A completed secondary with no turn stamp (saved before the
+// stamp existed) is shown on the final turn, where the Final summary
+// lists it as well.
+function buildTurnReviewHtml(battle, tracker){
+  const maxTurn = Math.max(1, tracker.turn || 1);
+  const reviewTurn = currentReviewTurn(battle.id, maxTurn);
+  const sideBlock = (side, label) => {
+    const byTurn = side.primaryVPByTurn || {};
+    const primaryThisTurn = byTurn[reviewTurn] || 0;
+    let primaryRunning = byTurn.legacy || 0;
+    for(let t = 1; t <= reviewTurn; t++) primaryRunning += byTurn[t] || 0;
+    const achieved = (side.completedSecondaries || []).filter(s => (s.turn || maxTurn) === reviewTurn);
+    const achievedHtml = achieved.map(s => `<div class="secItem"><span class="secName scored">${escapeHtml(s.displayName)}</span><span class="secPts">${s.vp || 0} VP</span></div>`).join('') || `<div class="loadSub">No secondaries achieved this turn.</div>`;
+    const secondaryRunning = (side.completedSecondaries || []).filter(s => (s.turn || maxTurn) <= reviewTurn).reduce((sum, s) => sum + (s.vp || 0), 0);
+    return `
+    <div class="trackerSide">
+      <div class="sectionTitle">${escapeHtml(label)} — Turn ${reviewTurn}</div>
+      <div class="counterRow"><span class="counterLabel">Primary VP (this turn)</span><span class="counterVal">${primaryThisTurn}</span></div>
+      <div class="counterRow"><span class="counterLabel">Total VP (end of turn)</span><span class="counterVal">${primaryRunning + secondaryRunning}</span></div>
+      <div class="secListLabel">Secondaries Achieved</div>
+      ${achievedHtml}
+    </div>`;
+  };
+  const turnBtns = [];
+  for(let t = 1; t <= maxTurn; t++){
+    turnBtns.push(`<button class="btn ${t === reviewTurn ? 'gold' : 'ghost'}" data-review-turn="${t}" style="flex:1; padding:10px 0; font-size:11px;">Turn ${t}</button>`);
+  }
+  const anyLegacy = (tracker.my.primaryVPByTurn && tracker.my.primaryVPByTurn.legacy) || (tracker.opponent.primaryVPByTurn && tracker.opponent.primaryVPByTurn.legacy);
+  return `
+    <div id="turnReviewSection" style="margin-top:18px;">
+      <div class="sectionTitle" style="text-align:center;">📜 Turn Review</div>
+      <div style="display:flex; gap:6px; margin-bottom:10px;">${turnBtns.join('')}</div>
+      ${anyLegacy ? '<div class="loadSub" style="margin-bottom:8px;">Includes Primary VP recorded before per-turn tracking existed, counted in the running totals.</div>' : ''}
+      ${sideBlock(tracker.my, 'My Army')}
+      ${sideBlock(tracker.opponent, battle.opponent)}
+    </div>
+  `;
+}
+
 function buildTrackerTabHtml(battle, tracker){
   if(tracker.finished){
     const myTotal = totalVP(tracker.my), oppTotal = totalVP(tracker.opponent);
@@ -3017,6 +3072,7 @@ function buildTrackerTabHtml(battle, tracker){
       ${tracker.concededBy ? `<div class="noteBox" style="text-align:center; font-size:13px; color:var(--parchment); border:none;">🏳 ${tracker.concededBy === 'my' ? 'You' : escapeHtml(battle.opponent)} conceded — final scores locked as they stood.</div>` : ''}
       ${buildSideTrackerReadOnlyHtml(tracker.my, 'My Army')}
       ${buildSideTrackerReadOnlyHtml(tracker.opponent, battle.opponent)}
+      ${buildTurnReviewHtml(battle, tracker)}
     `;
   }
   return `
@@ -3373,6 +3429,17 @@ async function renderBattleTracker(battleId, tab){
 
   if(tab === 'tracker' && document.getElementById('primaryMissionBtn')){
     document.getElementById('primaryMissionBtn').onclick = () => renderPrimaryMission(battleId, tab);
+  }
+
+  if(tab === 'tracker' && tracker.finished){
+    main.querySelectorAll('[data-review-turn]').forEach(btn => {
+      btn.onclick = async () => {
+        turnReviewState = { battleId, turn: parseInt(btn.getAttribute('data-review-turn'), 10) || 1 };
+        await renderBattleTracker(battleId, 'tracker');
+        const el = document.getElementById('turnReviewSection');
+        if(el) el.scrollIntoView();
+      };
+    });
   }
 
   if(tab === 'my' || tab === 'opponent'){
