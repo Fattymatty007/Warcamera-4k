@@ -2,7 +2,7 @@ import './style.css';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import { callGemini } from './api.js';
-import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList } from './storage.js';
+import { loadCustomModels, saveCustomModelsList, loadUserApiKey, saveUserApiKey, loadBattles, saveBattlesList, loadCollection, saveCollectionList, loadNavState, saveNavState } from './storage.js';
 import { requireLicense } from './licenseGate.js';
 
 // Date.now() alone isn't unique enough for ids assigned in a tight loop
@@ -357,6 +357,7 @@ async function renderPrimaryMission(battleId, returnTab){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
+  rememberScreen('primaryMission', { battleId, returnTab: returnTab || 'tracker' });
   const tracker = ensureTracker(battle);
   const missionsData = await loadMissionsData();
 
@@ -647,9 +648,19 @@ function showManualInstallModal(){
 }
 
 // ---------- SCREEN: HOME ----------
+// Records the last meaningful top-level screen so a relaunch can restore
+// it (see restoreSavedScreen at init). Sub-screens (camera, datasheet
+// sheets, pickers, confirm dialogs) deliberately do NOT call this — the
+// parent screen stays the restore point, which is the screen the user
+// actually thinks of as "where they were".
+function rememberScreen(screen, params){
+  try { saveNavState(Object.assign({ screen }, params || {})); } catch(e) {}
+}
+
 function renderHome(){
   clearFooter();
   setStatus('', 'STANDBY');
+  rememberScreen('home');
   onPhotoReady = identifyFromImage;
   onCameraCancel = renderHome;
   currentBattleContext = null;
@@ -2190,6 +2201,7 @@ async function addUnitsToCollectionFolder(datasheets, label, rawText, detachment
 async function renderBattleList(){
   clearFooter();
   setStatus('', 'STANDBY');
+  rememberScreen('battleList');
   currentBattleContext = null;
   renderLoading('OPENING ARCHIVE', 'Loading your battles…');
 
@@ -2353,6 +2365,7 @@ async function renderBattleDetail(battleId){
 
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
+  rememberScreen('battleDetail', { battleId });
   const tracker = ensureTracker(battle); // in-memory default is fine here — only persisted once Start Battle is actually pressed
 
   const battleBtnLabel = tracker.finished ? '📊 View Battle Tracker'
@@ -3294,6 +3307,7 @@ async function renderBattleTracker(battleId, tab){
 
   const battle0 = await getBattleById(battleId);
   if(!battle0){ renderBattleList(); return; }
+  rememberScreen('battleTracker', { battleId, tab });
   let battle = battle0;
   let tracker = ensureTracker(battle);
 
@@ -3466,6 +3480,7 @@ function renderFinishGameConfirm(battleId){
 async function renderCollectionList(){
   clearFooter();
   setStatus('', 'STANDBY');
+  rememberScreen('collection');
   currentBattleContext = null;
   renderLoading('OPENING ARCHIVE', 'Loading your collection…');
 
@@ -3827,6 +3842,7 @@ function renderTextListView(entry, onBack, backLabel){
 async function renderCustomLibrary(){
   clearFooter();
   setStatus('', 'STANDBY');
+  rememberScreen('customLibrary');
   renderLoading('OPENING ARCHIVE', 'Loading your custom models…');
 
   const list = await loadCustomModels();
@@ -4418,8 +4434,35 @@ window.addEventListener('popstate', () => {
   setTimeout(() => { suppressHistoryPush = false; }, 50);
 });
 
+// Boot used to call renderHome() unconditionally, so ANY full reload —
+// Android killing the backgrounded app's process, a screen-lock teardown,
+// or the service worker's update reload — threw away the screen the user
+// was on and reset to Home. Mid-battle that meant re-navigating from Home
+// every time the user so much as switched apps to check a message. Restore
+// the remembered screen instead (see rememberScreen); Home stays the
+// default for a first launch or an invalid/stale descriptor, and a
+// remembered battle that no longer exists falls back to the battle list.
+async function restoreSavedScreen(){
+  const nav = loadNavState();
+  try {
+    if(nav){
+      if(nav.screen === 'battleList') return renderBattleList();
+      if(nav.screen === 'collection') return renderCollectionList();
+      if(nav.screen === 'customLibrary') return renderCustomLibrary();
+      if(nav.battleId && (nav.screen === 'battleDetail' || nav.screen === 'battleTracker' || nav.screen === 'primaryMission')){
+        const battle = await getBattleById(nav.battleId);
+        if(!battle) return renderBattleList();
+        if(nav.screen === 'battleDetail') return renderBattleDetail(nav.battleId);
+        if(nav.screen === 'battleTracker') return renderBattleTracker(nav.battleId, nav.tab || 'tracker');
+        return renderPrimaryMission(nav.battleId, nav.returnTab || 'tracker');
+      }
+    }
+  } catch(e) { /* any restore failure falls back to Home below */ }
+  return renderHome();
+}
+
 // init — behind the membership license gate
 requireLicense('WarCamera 4k').then(() => {
-  renderHome();
+  restoreSavedScreen();
   syncMainObserverEffects(); // observer callbacks are async — set the correct initial state synchronously too, so the "✕" is never visible even for a frame on first load
 });

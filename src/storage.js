@@ -88,3 +88,28 @@ export async function saveCollectionList(list) {
     console.error('Failed to save collection', e);
   }
 }
+
+// Last meaningful screen shown — so relaunching the app (Android killing
+// the backgrounded PWA's process, a screen-lock teardown, or the service
+// worker's update reload) returns to the screen the user was on instead
+// of resetting to Home. Only a small descriptor is stored ({screen,
+// battleId, tab}), never screen content.
+const NAV_STATE_KEY = 'warcamera-nav-state';
+
+export function loadNavState() {
+  try {
+    const raw = localStorage.getItem(NAV_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function saveNavState(state) {
+  try {
+    if (state) localStorage.setItem(NAV_STATE_KEY, JSON.stringify(state));
+    else localStorage.removeItem(NAV_STATE_KEY);
+  } catch (e) {
+    console.error('Failed to save nav state', e);
+  }
+}
