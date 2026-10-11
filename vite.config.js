@@ -29,12 +29,18 @@ export default defineConfig({
         runtimeCaching: [
           {
             // Same-origin static data (points-data.json, datasheets-data.json
-            // — the latter several MB — and detachments-data.json) only
+            // — the latter several MB — detachments-data.json,
+            // missions-data.json and secondary-missions-data.json) only
             // changes on a weekly refresh cycle at most, so re-fetching it on
             // every app launch would be wasteful. StaleWhileRevalidate serves
             // the cached copy instantly and picks up a refreshed file in the
-            // background.
-            urlPattern: /\/(points|datasheets|detachments)-data\.json$/,
+            // background. The two mission files were originally left out of
+            // this rule, which meant they alone needed a live network fetch
+            // on every cold start — on a network where the site itself is
+            // unreachable (e.g. a home router blocking the domain) the app
+            // shell and every cached file worked while Primary Missions and
+            // the secondary deck silently failed to load.
+            urlPattern: /\/(points|datasheets|detachments|secondary-missions|missions)-data\.json$/,
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'warcamera-data-json' },
           },
