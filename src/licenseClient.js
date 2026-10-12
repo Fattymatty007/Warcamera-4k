@@ -9,7 +9,7 @@
 // "All-Access Membership" product is published in Lemon Squeezy. Until then
 // it points at the store page, which lists the product once it's live.
 
-export const CHECKOUT_URL = 'https://mattsapps.lemonsqueezy.com';
+export const CHECKOUT_URL = 'https://mattsapps.lemonsqueezy.com/checkout/buy/d3fe252d-c244-4f63-ba41-dbb26c01a5c6';
 
 const VALIDATE_URL = 'https://api.lemonsqueezy.com/v1/licenses/validate';
 const LS_KEY = 'mattsapps_license_key';
