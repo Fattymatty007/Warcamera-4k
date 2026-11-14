@@ -21,6 +21,12 @@ update might not be reflected — the app says so on-screen. See
 [SETUP.md](SETUP.md) for the one-time Cloudflare Worker deploy that keeps
 the API key out of the browser.
 
+The app doesn't bundle, scrape, or fetch any Games Workshop rules, points,
+detachment, or mission data. Every datasheet comes from the Gemini lookup,
+which is told to paraphrase rules in its own words rather than quote them.
+In the battle tracker, players type in the Secondary Missions they drew
+from their own deck and score Primary VP themselves.
+
 By default every visitor shares the worker owner's key. Anyone can opt out
 of that via **🔑 API Key Settings** on the home screen and paste in their
 own free Gemini key instead — it's stored only on their device and passed

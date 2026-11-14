@@ -157,299 +157,21 @@ function confirmSlideDelete(title, message, onConfirm){
 const VISION_MODEL = 'gemini-flash-latest';
 const TEXT_MODEL = 'gemini-flash-lite-latest';
 
-// Official points data, extracted from the BSData community's Munitorum
-// Field Manual snapshots (github.com/BSData/wh40k-11e-mfm — the same
-// BSData data New Recruit's lists are built from, parsed from GW's
-// official manual) by .github/workflows/update-points.yml (see
-// scripts/fetch-points.mjs) and served as a static file alongside the
-// app — no worker/Gemini call involved. Preferred over the model's own
-// points guess whenever a unit matches, since these published points are
-// current and the model's training data inevitably lags balance updates.
-// Previously scraped from Wahapedia's per-datasheet points tables;
-// switched 2026-10-10 because Wahapedia's 11e costs lag balance updates
-// (see fetch-points.mjs).
-let pointsDataPromise = null;
-function loadPointsData(){
-  if(!pointsDataPromise){
-    pointsDataPromise = fetch('/points-data.json')
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  }
-  return pointsDataPromise;
-}
+// Datasheets and points come only from the Gemini lookup further down
+// (lookupDatasheetFromGemini), which paraphrases rules text in its own
+// words. The app no longer bundles or fetches any static rules, points,
+// detachment, or mission data files.
 
 function normalizePointsName(name){
   return (name||'').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// Shared exact-then-substring key match used by both the points dataset and
-// the datasheets dataset below (e.g. "Chaos Defiler" matching the source's
-// plain "Defiler" entry).
-function findDatasetKey(data, unitName){
-  if(!data || !data.units) return null;
-  const key = normalizePointsName(unitName);
-  if(!key) return null;
-  if(data.units[key]) return key;
-  const keys = Object.keys(data.units);
-  const hit = keys.find(k => k.length > 2 && (key.includes(k) || k.includes(key)));
-  return hit || null;
-}
-
-function lookupInDataset(data, unitName){
-  const key = findDatasetKey(data, unitName);
-  return key ? data.units[key] : null;
-}
-
-async function lookupOfficialPoints(unitName){
-  return lookupInDataset(await loadPointsData(), unitName);
-}
-
-function formatOfficialPoints(entry){
-  const raw = (entry.points || '').trim();
-  return /^\d+$/.test(raw) ? raw + ' pts' : raw;
-}
-
-// Official datasheets (stats/weapons/abilities/keywords), extracted from
-// Wahapedia's public 11th-edition data export by
-// .github/workflows/update-datasheets.yml (see scripts/fetch-datasheets.mjs)
-// and served as a static file alongside the app — no worker/Gemini call
-// involved. Checked BEFORE asking Gemini for a datasheet at all: when a
-// unit matches, its stats/weapons/abilities come straight from this
-// authoritative, current-edition-only source instead of the model's own
-// knowledge, which blends every edition it's ever seen with no reliable
-// way to tell current content apart from a retired weapon option — and
-// which a visitor's own (usually unbilled, non-grounded) API key has no
-// way to verify against anything current at all. Only a unit not found
-// here (e.g. a very new release) falls through to asking Gemini.
-let datasheetsDataPromise = null;
-function loadDatasheetsData(){
-  if(!datasheetsDataPromise){
-    datasheetsDataPromise = fetch('/datasheets-data.json')
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  }
-  return datasheetsDataPromise;
-}
-
-// Detachment-level rules/enhancements/stratagems, extracted from Wahapedia's
-// export by .github/workflows/update-detachments.yml (see
-// scripts/fetch-detachments.mjs) — same static, zero-Gemini-call pattern as
-// points and datasheets. Doesn't include faction-wide Army Rules; Wahapedia's
-// export doesn't have that data at all (confirmed via CI dispatch).
-let detachmentsDataPromise = null;
-function loadDetachmentsData(){
-  if(!detachmentsDataPromise){
-    detachmentsDataPromise = fetch('/detachments-data.json')
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  }
-  return detachmentsDataPromise;
-}
-
-// A Detachment "card" saved into a collection folder or a battle roster is
-// a frozen snapshot taken whenever it was added — disposition was added to
-// that snapshot's shape after some users had already saved cards without
-// it, so an old stored card can be missing disposition even though the
-// live data (and a brand new lookup) has it. Patch it back in from the
-// current detachments-data.json by faction+name whenever a saved card is
-// about to be shown, instead of requiring the user to re-add it.
-// The Force Disposition primary mission system: each Battle Round, each
-// player's Primary Mission is looked up on their own Force Disposition card
-// using their OPPONENT's disposition as the key — so the two sides usually
-// have different missions, even between the same two players. Source is
-// Wahapedia's Mission Deck 2026-27 page (see fetch-missions.mjs); this data
-// has nothing to do with which Detachment a player brought beyond that
-// Detachment's fixed disposition (see card.disposition, force_disposition
-// in fetch-detachments.mjs) — it's the same 5-value lookup either way.
-let missionsDataPromise = null;
-function loadMissionsData(){
-  if(missionsDataPromise) return missionsDataPromise;
-  const attempt = fetch('/missions-data.json')
-    .then(r => r.ok ? r.json() : null)
-    .catch(() => null);
-  missionsDataPromise = attempt;
-  // Don't let one failed fetch poison the whole session: this loader used
-  // to cache a null result forever, so a single network hiccup (flaky
-  // venue or home Wi-Fi) left "Could not load mission data" on screen
-  // until a full app restart even after the connection recovered. Reset
-  // on failure so the next screen open retries — same pattern the
-  // secondary-missions loader already uses.
-  attempt.then(result => { if(!result) missionsDataPromise = null; });
-  return attempt;
-}
-
-function findPrimaryMission(missionsData, playerDisposition, opponentDisposition){
-  if(!missionsData || !playerDisposition || !opponentDisposition) return null;
-  return missionsData.missions.find(m => m.playerDisposition === playerDisposition && m.opponentDisposition === opponentDisposition) || null;
-}
-
-// A mission's scoring is grouped into blocks, each headed by which Battle
-// Round(s) it applies to (e.g. "ANY BATTLE ROUND", "SECOND BATTLE ROUND
-// ONWARDS", "FIFTH BATTLE ROUND", "END OF THE BATTLE") — this turns that
-// header text back into the actual round numbers it covers, so the block
-// relevant to the tracker's current turn can be highlighted.
-const BATTLE_ROUND_ORDINALS = { FIRST: 1, SECOND: 2, THIRD: 3, FOURTH: 4, FIFTH: 5 };
-function roundsForMissionHeader(header, totalTurns){
-  const h = (header || '').toUpperCase();
-  if(h.includes('END OF THE BATTLE')) return [totalTurns];
-  if(h.includes('ANY BATTLE ROUND')){
-    const all = []; for(let i = 1; i <= totalTurns; i++) all.push(i); return all;
-  }
-  const words = h.replace(/BATTLE ROUNDS?/, '').trim().split(/\s+/).filter(Boolean);
-  if(words.includes('ONWARDS')){
-    const start = BATTLE_ROUND_ORDINALS[words[0]];
-    if(!start) return [];
-    const out = []; for(let i = start; i <= totalTurns; i++) out.push(i); return out;
-  }
-  if(words.includes('TO')){
-    const start = BATTLE_ROUND_ORDINALS[words[0]];
-    const end = BATTLE_ROUND_ORDINALS[words[words.indexOf('TO') + 1]];
-    if(!start || !end) return [];
-    const out = []; for(let i = start; i <= end; i++) out.push(i); return out;
-  }
-  if(words.includes('AND')){
-    const nums = words.map(w => BATTLE_ROUND_ORDINALS[w]).filter(Boolean);
-    if(nums.length) return nums;
-  }
-  const single = BATTLE_ROUND_ORDINALS[words[0]];
-  return single ? [single] : [];
-}
-
-function buildPrimaryMissionSideHtml(mission, sideLabel, currentTurn, totalTurns){
-  if(!mission){
-    return `
-      <div class="missionSide">
-        <div class="missionSideHead">
-          <div class="missionSideLabel">${escapeHtml(sideLabel)}</div>
-          <div class="missionFlavor" style="margin-top:6px;">No Primary Mission could be determined — this side needs a resolved Detachment (and Deposition) on both sides first.</div>
-        </div>
-      </div>
-    `;
-  }
-  const blocksHtml = mission.scoring.map(block => {
-    const rounds = roundsForMissionHeader(block.header, totalTurns);
-    const active = rounds.includes(currentTurn);
-    const entriesHtml = block.entries.map(e => `
-      <div class="missionEntry">
-        <span>${e.plus ? '+ ' : ''}${escapeHtml(e.text)}</span>
-        <span class="missionVP${e.cumulative ? ' cumulative' : ''}">${escapeHtml(e.vp)}</span>
-      </div>
-    `).join('');
-    return `
-      <div class="missionBlock${active ? ' missionBlockActive' : ''}">
-        <div class="missionBlockHdr">${escapeHtml(block.header)}${active ? ' • THIS TURN' : ''}</div>
-        ${block.when ? `<div class="missionBlockWhen">WHEN: ${escapeHtml(block.when)}</div>` : ''}
-        ${entriesHtml}
-      </div>
-    `;
-  }).join('');
-  const actionHtml = mission.action ? `
-    <div class="missionAction">
-      <div class="missionActionName">🎯 ${escapeHtml(mission.action.displayName)} (Objective Action)</div>
-      ${mission.action.rows.map(r => `<div class="missionActionRow"><b>${escapeHtml(r.label)}:</b> ${escapeHtml(r.text)}</div>`).join('')}
-    </div>
-  ` : '';
-  return `
-    <div class="missionSide">
-      <div class="missionSideHead">
-        <div class="missionSideLabel">${escapeHtml(sideLabel)}</div>
-        <div class="missionName">${escapeHtml(mission.displayName)}</div>
-        <div class="missionFlavor">${escapeHtml(mission.flavor)}</div>
-      </div>
-      ${blocksHtml}
-      ${actionHtml}
-    </div>
-  `;
-}
-
-async function renderPrimaryMission(battleId, returnTab){
-  setStatus('', 'STANDBY');
-  const battle = await getBattleById(battleId);
-  if(!battle){ renderBattleList(); return; }
-  rememberScreen('primaryMission', { battleId, returnTab: returnTab || 'tracker' });
-  const tracker = ensureTracker(battle);
-  const missionsData = await loadMissionsData();
-
-  // Units (and Detachments) can be added mid-battle, not just before Start
-  // Battle — a second Detachment showing up on a side that only had one
-  // makes its Deposition ambiguous again, same real 40k rule as before.
-  // Recomputed fresh every time this screen renders (nothing here is
-  // cached), so a Deposition picked or changed elsewhere is always
-  // reflected the next time this screen is opened — and this screen can
-  // also resolve it directly, rather than sending the player away to fix
-  // it and back again.
-  const myNeedsChoice = needsDispositionChoice(battle.myUnits, battle.myActiveDetachmentId);
-  const oppNeedsChoice = needsDispositionChoice(battle.opponentUnits, battle.opponentActiveDetachmentId);
-  const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
-
-  // A resolved Detachment's card can still be an old, pre-disposition-field
-  // snapshot (see withFreshDetachmentData) — heal it here too, same as the
-  // Choose Active Detachment screen and the Detachment Rules card already
-  // do, or this lookup would silently fail for a battle roster saved
-  // before that field existed.
-  const myDetach = resolveActiveDetachment(battle.myUnits, battle.myActiveDetachmentId);
-  const oppDetach = resolveActiveDetachment(battle.opponentUnits, battle.opponentActiveDetachmentId);
-  const myDisposition = myDetach && (await withFreshDetachmentData(myDetach.card)).disposition;
-  const oppDisposition = oppDetach && (await withFreshDetachmentData(oppDetach.card)).disposition;
-
-  const myMission = findPrimaryMission(missionsData, myDisposition, oppDisposition);
-  const oppMission = findPrimaryMission(missionsData, oppDisposition, myDisposition);
-
-  const whichSide = myNeedsChoice && oppNeedsChoice ? 'both armies' : myNeedsChoice ? 'My Army' : `${battle.opponent}'s Army`;
-  const needsChoiceNote = (myNeedsChoice || oppNeedsChoice)
-    ? `<div class="noteBox" style="border-color:var(--blood-bright); color:var(--parchment);">More than one Detachment is on ${escapeHtml(whichSide)} — pick which one's Deposition applies to see the right Primary Mission.</div>`
-    : '';
-  const detachButtonHtml = hasMultipleDetachments
-    ? `<button class="btn ${(myNeedsChoice || oppNeedsChoice) ? 'gold' : 'ghost'}" id="resolveDispositionBtn" style="margin-bottom:14px;">${(myNeedsChoice || oppNeedsChoice) ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>`
-    : '';
-
-  main.innerHTML = `
-    <div class="turnBadge">Turn ${tracker.turn}</div>
-    ${needsChoiceNote}
-    ${detachButtonHtml}
-    ${!missionsData ? '<div class="noteBox">Could not load mission data — check your connection and try again.</div>' : ''}
-    ${buildPrimaryMissionSideHtml(myMission, 'My Primary Mission', tracker.turn, TOTAL_TURNS)}
-    ${buildPrimaryMissionSideHtml(oppMission, `${battle.opponent}'s Primary Mission`, tracker.turn, TOTAL_TURNS)}
-  `;
-  footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="missionBackBtn" data-nav-back>← Back to Tracker</button>`;
-  document.getElementById('missionBackBtn').onclick = () => renderBattleTracker(battleId, returnTab || 'tracker');
-  if(document.getElementById('resolveDispositionBtn')){
-    document.getElementById('resolveDispositionBtn').onclick = () => renderChooseActiveDetachment(battleId, () => renderPrimaryMission(battleId, returnTab));
-  }
-}
-
-// A saved Detachment card (My Collection, a folder, a battle roster) is a
-// frozen snapshot from whenever it was looked up/added — its rule,
-// enhancements, and stratagems (including each stratagem's WHEN/phase/turn
-// timing) can go stale as Wahapedia's own export gets corrected via
-// errata, with an already-saved card having no way to pick that up on its
-// own (disposition used to be the only field patched back in here, for a
-// card saved before disposition existed at all). Since this is a free
-// static lookup — no Gemini call, no network cost beyond the dataset's own
-// already-cached fetch — the whole record is refreshed from the current
-// dataset every time a saved card is about to be shown, not just when
-// something is missing, so stratagem text/timing is never stuck showing an
-// old, since-corrected version. Falls back to the saved snapshot as-is if
-// the detachment can no longer be found in the current dataset (e.g.
-// renamed/removed upstream) rather than blanking it out.
-async function withFreshDetachmentData(card){
-  if(!card) return card;
-  const data = await loadDetachmentsData();
-  const faction = data && data.factions && data.factions[normalizePointsName(card.faction || '')];
-  const fresh = faction && faction.detachments[normalizePointsName(card.displayName || '')];
-  return fresh ? Object.assign({}, card, fresh) : card;
-}
-
-// Wahapedia's HTML uses named/numeric character references for anything
-// beyond plain ASCII (curly quotes, dashes, non-breaking spaces, ...)
-// instead of the literal UTF-8 character — left undecoded here, one shows
-// up verbatim as junk-looking text like "&rsquo;" once escapeHtml()
-// re-escapes its "&". Datasheet/points/mission text is already decoded at
-// scrape time (see stripHtml in the fetch-*.mjs scripts); Detachment Rules
-// text (ability/enhancement/stratagem descriptions) is the one place kept
-// as raw HTML end to end, converted here at render time instead — so this
-// is where it needs decoding too.
+// Detachment Rules cards saved by earlier versions of the app keep their
+// rule/enhancement/stratagem descriptions as raw HTML, converted to plain
+// text here at render time — named/numeric character references (curly
+// quotes, dashes, non-breaking spaces, ...) are decoded too, otherwise one
+// shows up verbatim as junk-looking text like "&rsquo;" once escapeHtml()
+// re-escapes its "&".
 const HTML_ENTITIES = {
   nbsp: ' ', emsp: ' ', ensp: ' ', thinsp: ' ',
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
@@ -475,102 +197,6 @@ function htmlToPlainText(html){
     .replace(/\n{2,}/g, '\n')
     .replace(/^\n+/, '')
     .trim();
-}
-
-// A unit name can map to more than one official datasheet — some units
-// (e.g. Nurgle Daemon units like Nurglings or Plague Drones) have a
-// genuinely separate datasheet per faction that can take them. See
-// fetch-datasheets.mjs — every variant is kept under the same name key.
-async function lookupOfficialDatasheetVariants(unitName){
-  const data = await loadDatasheetsData();
-  const key = findDatasetKey(data, unitName);
-  if(!key) return [];
-  const entry = data.units[key];
-  // Tolerates the previous single-object-per-key schema too (not just the
-  // current array-of-variants one) — the app and datasheets-data.json
-  // deploy independently (this file's build vs. update-datasheets.yml's
-  // own commit+deploy), so there's always a window where one has shipped
-  // and the other hasn't yet.
-  return Array.isArray(entry) ? entry : [entry];
-}
-
-// Picks one variant for callers that need a single result (bulk imports,
-// or an interactive lookup that already knows which faction it wants):
-// prefers a variant whose faction matches the given hint, and otherwise
-// just takes the first. Interactive single-unit search instead calls
-// lookupOfficialDatasheetVariants() directly so it can ask the user when
-// there's more than one and no hint to go on — see fetchDatasheet().
-async function lookupOfficialDatasheet(unitName, factionHint){
-  const variants = await lookupOfficialDatasheetVariants(unitName);
-  if(!variants.length) return null;
-  const hint = (factionHint || '').toLowerCase().trim();
-  if(hint){
-    const match = variants.find(v => {
-      const vf = (v.faction || '').toLowerCase();
-      return vf && (vf.includes(hint) || hint.includes(vf));
-    });
-    if(match) return match;
-  }
-  return variants[0];
-}
-
-// A saved/logged unit card (My Collection, a folder, a battle roster) is a
-// frozen snapshot taken whenever it was looked up — fields like transport
-// capacity, Damaged (degraded-profile) rules, default loadout, and the
-// Leader ability were added to the official dataset after some cards had
-// already been saved without them, so an old stored card can be missing
-// any of them even though a fresh lookup now has it. Each is patched back
-// in independently from the current dataset by name+faction whenever a
-// saved card is about to be shown, same pattern as
-// withFreshDetachmentData/withFreshSecondaryData elsewhere. A unit that
-// genuinely has none of these still comes back null/undefined either way.
-//
-// Abilities are different: they're essentially never empty, so a card
-// saved before a scraper bugfix (e.g. a parameterized ability's number
-// missing from its own heading, or a glued-on rulebook section number like
-// "DEADLY DEMISE24.08") still has a *populated* abilities array — just a
-// stale, wrong one — and the "only fill in what's missing" check above
-// would never touch it. Abilities are always overwritten from the current
-// official record instead, same as withFreshDetachmentData always
-// refreshes the whole Detachment rather than only patching gaps.
-async function withFreshDatasheetFields(card){
-  if(!card) return card;
-  const official = await lookupOfficialDatasheet(card.unit_name, card.faction);
-  if(!official) return card;
-  const patch = {};
-  if(!card.transport && official.transport) patch.transport = official.transport;
-  if(!card.damaged && official.damaged) patch.damaged = official.damaged;
-  if(!card.loadout && official.loadout) patch.loadout = official.loadout;
-  if(!card.leader && official.leader) patch.leader = official.leader;
-  if(official.abilities && official.abilities.length) patch.abilities = official.abilities;
-  return Object.keys(patch).length ? Object.assign({}, card, patch) : card;
-}
-
-// Builds the same shape fetchDatasheet()/renderDatasheet() already expect
-// from a Gemini response, directly from the scraped dataset — points are
-// intentionally left blank/uncertain here since Wahapedia's export doesn't
-// include them at all; lookupDatasheetRaw fills them in right after from
-// the separate points dataset, same as it does for a Gemini-sourced result.
-function buildParsedFromOfficialDatasheet(official, isLight){
-  const base = {
-    unit_name: official.displayName,
-    faction: official.faction,
-    points: '',
-    points_uncertain: true,
-    stats: official.stats,
-    weapons: official.weapons,
-  };
-  if(isLight) return base;
-  return Object.assign(base, {
-    unit_composition: official.unit_composition,
-    loadout: official.loadout,
-    transport: official.transport,
-    damaged: official.damaged,
-    leader: official.leader,
-    abilities: official.abilities,
-    keywords: official.keywords,
-    faction_keywords: official.faction_keywords,
-  });
 }
 
 const main = document.getElementById('main');
@@ -731,15 +357,6 @@ function renderHome(){
   document.getElementById('manualBtn').onclick = async () => {
     const v = document.getElementById('manualInput').value.trim();
     if(!v) return;
-    // Check for a Detachment by that name first — same static, no-Gemini
-    // source used when a list upload finds one — before falling back to a
-    // normal unit lookup, so typing a Detachment name here (e.g. "Plague
-    // Legion") shows its rules card instead of a failed unit search.
-    setStatus('busy', 'RETRIEVING');
-    renderLoading('CONSULTING ARCHIVES', `Checking "${v}"…`);
-    const detachMatches = await findDetachmentByName(v);
-    if(detachMatches.length === 1){ renderDetachmentSearchResult(detachMatches[0]); return; }
-    if(detachMatches.length > 1){ renderDetachmentFactionPicker(v, detachMatches); return; }
     fetchDatasheet(v, '');
   };
   document.getElementById('manualInput').addEventListener('keydown', e=>{
@@ -945,7 +562,7 @@ function renderPasteListScreen(){
 }
 
 // Best-effort, format-agnostic army-list parser. Every army builder export
-// we're aware of (BattleScribe, NewRecruit, WTC, GW's own app) shows each
+// we're aware of shows each
 // unit's name immediately followed by its points cost in parentheses — e.g.
 // "Plague Marines (80 pts)" — since that's the one convention basically
 // universal across list formats, unlike everything else about their layout
@@ -994,23 +611,21 @@ function parseArmyListText(text){
   // way of disambiguating same-named units) is stripped since it isn't
   // resolved here — the led unit is matched by name only.
   const leadingRe = /^[•\-*▪◦›»]\s*(?:leading|leads|attached to|joined to)\s*:\s*(.+?)\s*(?:\[\d+\])?\s*$/i;
-  // An explicit "Detachment: X" line names the detachment directly — used
-  // below to look up that detachment's rule/enhancements/stratagems,
-  // instead of being discarded like the rest of skipPrefixRe's matches.
-  // Some exporters (e.g. NewRecruit's plain-text export) prefix every line
+  // An explicit "Detachment: X" line names the detachment directly — it's
+  // captured (rather than mistaken for a unit) but no longer looked up.
+  // Some exporters' plain-text output prefixes every line
   // of the header block with a decorative "+ " — tolerated here as an
   // optional leading bullet, same set skipPrefixRe already treats as
   // decoration elsewhere, so "+ DETACHMENT: X" is still recognized.
   const detachmentLineRe = /^[+•\-*▪◦›»]*\s*detachment\s*[:\-]\s*(.+)$/i;
   // An explicit "Faction: X" / "FACTION KEYWORD: X" line (common in
-  // BattleScribe/NewRecruit-style exports) names the list's own faction
+  // army-builder exports) names the list's own faction
   // directly, often as "Broad Alignment - Specific Faction" (e.g. "Chaos -
   // Chaos Space Marines"). Captured here — before skipPrefixRe would
   // otherwise silently discard it — and used by runArmyListImport as a
   // faction hint so a unit with datasheet variants across several factions
   // (e.g. a Chaos Lord fieldable by more than one Chaos-aligned army)
-  // resolves to the variant that actually matches this list, instead of
-  // whichever variant happens to come first in the dataset.
+  // resolves to the variant that actually matches this list.
   const factionLineRe = /^[+•\-*▪◦›»]*\s*faction(?:\s*keyword)?\s*[:\-]\s*(.+)$/i;
   const units = [];
   const leaderRelations = [];
@@ -1125,19 +740,9 @@ async function handleArmyListFile(text){
     renderArmyListParseError(`Didn't recognize any units in that list.`, text);
     return;
   }
-  // Detachments are detected up front, from the list's text alone (no
-  // per-unit datasheet lookups yet — those stay deferred to actually
-  // saving, same as before, so an unchecked unit is never looked up for
-  // nothing), so they can show up as their own checkable rows alongside
-  // the units on the same confirm screen instead of being silently added
-  // later with no chance to review them. Checked against every faction at
-  // once (see findAnyFactionDetachmentsInList) rather than needing this
-  // list's own faction resolved first, so detection doesn't depend on the
-  // list having an explicit "Faction:" line or a title that happens to
-  // match a known faction name.
-  renderLoading('SCANNING LIST', 'Checking for Detachments…');
-  const detectedDetachments = await findAnyFactionDetachmentsInList(text, detachmentHints);
-  renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine, detectedDetachments);
+  // Detachment Rules cards are no longer created from a pasted list (the
+  // app doesn't carry any detachment rules data), so only units are offered.
+  renderArmyListConfirm(units, text, title, detachmentHints, declaredFactionLine, []);
 }
 
 function renderArmyListParseError(message, rawText){
@@ -1159,11 +764,9 @@ function renderArmyListParseError(message, rawText){
 }
 
 // Points on a pasted list are the player's own and are never checked or
-// corrected against the official points dataset (Matt's call, 2026-10-10:
-// Wahapedia's points lag behind current balance updates too often, so the
-// app flagging "wrong" costs was crying wolf). Whatever cost a unit was
-// listed at is the cost it keeps — see runArmyListImport, which stamps the
-// pasted number onto the saved datasheet instead of the dataset's.
+// corrected (Matt's call, 2026-10-10). Whatever cost a unit was listed at
+// is the cost it keeps — see runArmyListImport, which stamps the pasted
+// number onto the saved datasheet instead of the lookup's own estimate.
 
 // The pasted list itself shows up as one more checkbox in the same list of
 // selectable units — no separate name field or second button — so adding
@@ -1246,36 +849,6 @@ function computeMajorityFaction(datasheets){
   return topFaction;
 }
 
-// Tries to identify which known faction a pasted list is actually for,
-// before any unit has been looked up — from an explicit "Faction:" /
-// "FACTION KEYWORD:" line if the exporter wrote one (captured by
-// parseArmyListText as declaredFactionLine), and otherwise from the list's
-// own title line. Both often read like "Chaos - Chaos Space Marines"
-// (broad alignment, then the specific faction) rather than a bare faction
-// name, so each candidate is tried whole and split on " - "/commas, always
-// as an EXACT match against a real faction name — never substring — so a
-// broad segment like "Chaos" alone can never falsely resolve to one of
-// several same-alignment factions (Chaos Daemons, Chaos Space Marines,
-// Chaos Knights, ...). Used as a faction hint for every per-unit datasheet
-// lookup below, so a unit with variants across more than one faction (e.g.
-// a Chaos Lord several Chaos-aligned armies can field) resolves to the
-// variant that actually matches this list, instead of whichever variant
-// happens to come first in the dataset.
-function resolveDeclaredFaction(candidates, detachmentsData){
-  if(!detachmentsData || !detachmentsData.factions) return '';
-  for(const candidate of candidates){
-    if(!candidate) continue;
-    const pieces = candidate.split(/\s+-\s+|,/).map(p => p.trim()).filter(Boolean);
-    pieces.push(candidate.trim());
-    for(const piece of pieces){
-      const key = normalizePointsName(piece);
-      const faction = key && detachmentsData.factions[key];
-      if(faction) return faction.displayName || piece;
-    }
-  }
-  return '';
-}
-
 function buildDefaultFolderName(title, units, datasheets){
   if(title) return title;
   const totalPts = units.reduce((sum, u) => sum + (u.pts || 0), 0);
@@ -1288,136 +861,12 @@ function buildDefaultFolderName(title, units, datasheets){
   return parts.join(' · ');
 }
 
-// Every string worth trying as a detachment name from a pasted list: each
-// explicit "Detachment: X" hint (captured by parseArmyListText), every
-// non-blank line whole, and — since some exporters embed the detachment
-// name as one hyphen-separated segment of an informal title line (e.g.
-// "Chaos - Chaos Daemons - Plague Legion - [2000 pts]") rather than a line
-// of its own — every " - "-separated segment of that line too, with a
-// trailing points bracket stripped if the segment carries one. Every
-// candidate is also tried split on commas, since some exporters list two
-// detachments taken together as "Detachment A, Detachment B" within a
-// single segment (e.g. "Xenos - Necrons - Cursed Legion, Hand of the
-// Dynasty" — a real two-detachment Necrons list) rather than one per line —
-// and with any trailing parenthetical stripped, since some exporters
-// follow a detachment name with an enhancement-set/sub-choice in
-// parentheses that isn't part of the name itself (e.g. "Hunting Warpack
-// (Marked Prey)" for a real detachment just named "Hunting Warpack").
-// Shared by findDetachmentsInList (matched against one known faction) and
-// findAnyFactionDetachmentsInList (matched against all of them) below —
-// candidates that don't happen to match anything real are harmless either
-// way, so it's safe to generate the same broad set for both.
-function candidateDetachmentNames(rawText, detachmentHints){
-  const names = [];
-  const pushCandidate = (candidateName) => {
-    names.push(candidateName);
-    const noParen = candidateName.replace(/\s*\([^()]*\)\s*$/, '').trim();
-    if(noParen && noParen !== candidateName) names.push(noParen);
-    for(const variant of [candidateName, noParen]){
-      if(!variant.includes(',')) continue;
-      for(const piece of variant.split(',')){
-        const trimmed = piece.trim();
-        if(trimmed) names.push(trimmed);
-      }
-    }
-  };
-  for(const hint of detachmentHints) pushCandidate(hint);
-  for(const rawLine of rawText.split(/\r?\n/)){
-    const line = rawLine.trim();
-    if(!line) continue;
-    pushCandidate(line);
-    const segments = line.split(/\s+-\s+/);
-    if(segments.length > 1){
-      for(const seg of segments){
-        const cleaned = seg.replace(/\s*[\(\[]\s*\d[\d,]*\s*(?:pts?|points)\s*[\)\]]\s*$/i, '').trim();
-        if(cleaned) pushCandidate(cleaned);
-      }
-    }
-  }
-  return names;
-}
-
-// Finds which detachments a pasted list actually uses, checking every
-// faction's detachments at once — no resolved faction needed, so this runs
-// right after parsing (before any per-unit datasheet lookup has revealed
-// which faction the list is even for), letting a detected Detachment show
-// up as its own checkbox on the confirm screen immediately. See
-// handleArmyListFile. An exact match only (never substring) — either an
-// explicit "Detachment: X" hint (captured by parseArmyListText) or a whole
-// line/segment matching a real detachment name — so a made-up nickname like
-// "2 Bigs" that just doesn't match anything real is never mistaken for one.
-// Supports more than one match, so a list naming several detachments gets a
-// card for each. The one detachment name known to
-// collide across factions in the current dataset ("Infestation Swarm" —
-// Genestealer Cults and Tyranids both have one) resolves to whichever
-// faction is checked first — a narrow, pre-existing ambiguity, same as
-// findDetachmentByName's own multi-match search below.
-async function findAnyFactionDetachmentsInList(rawText, detachmentHints){
-  const data = await loadDetachmentsData();
-  if(!data || !data.factions) return [];
-  const found = new Map();
-  for(const candidate of candidateDetachmentNames(rawText, detachmentHints)){
-    const key = normalizePointsName(candidate);
-    if(!key || found.has(key)) continue;
-    for(const faction of Object.values(data.factions)){
-      const detachment = faction.detachments[key];
-      if(detachment){ found.set(key, detachment); break; }
-    }
-  }
-  return [...found.values()];
-}
-
-// Lets the same "Look Up Datasheet" search box find a Detachment by name,
-// not just a unit — same static, no-Gemini-call source as
-// findDetachmentsInList above. Exact normalized-name match first (across
-// every faction, since the search box has no faction context to narrow
-// by); if nothing matches exactly, falls back to a substring match so a
-// partial or slightly-off name still finds something, same pattern as
-// findDatasetKey's unit lookup. Only one detachment name collides across
-// factions in the current dataset ("Infestation Swarm" — Genestealer
-// Cults and Tyranids both have one), but a substring search can turn up
-// several unrelated detachments too, so this always returns every match
-// for the caller to disambiguate rather than guessing.
-async function findDetachmentByName(query){
-  const data = await loadDetachmentsData();
-  if(!data || !data.factions) return [];
-  const key = normalizePointsName(query);
-  if(!key) return [];
-
-  const exact = [];
-  const substring = [];
-  for(const faction of Object.values(data.factions)){
-    for(const [dKey, card] of Object.entries(faction.detachments)){
-      if(dKey === key) exact.push(card);
-      else if(dKey.length > 2 && (key.includes(dKey) || dKey.includes(key))) substring.push(card);
-    }
-  }
-  return exact.length ? exact : substring;
-}
-
-// Picks one card for a caller that already knows which faction it wants
-// (the QR roster import, which carries each detachment's faction in the
-// payload) — same hint-preference pattern as lookupOfficialDatasheet:
-// prefers a match whose faction fits the hint, otherwise just the first
-// match findDetachmentByName found.
-async function lookupDetachmentCard(name, factionHint){
-  const matches = await findDetachmentByName(name);
-  if(!matches.length) return null;
-  const hint = (factionHint || '').toLowerCase().trim();
-  if(hint){
-    const match = matches.find(c => {
-      const cf = (c.faction || '').toLowerCase();
-      return cf && (cf.includes(hint) || hint.includes(cf));
-    });
-    if(match) return match;
-  }
-  return matches[0];
-}
-
 async function runArmyListImport(units, rawText, folderName, title, detachmentHints, declaredFactionLine, selectedDetachments){
   setStatus('busy', 'IMPORTING');
-  const detachmentsData = await loadDetachmentsData();
-  const declaredFaction = resolveDeclaredFaction([declaredFactionLine, title], detachmentsData);
+  // An explicit "Faction:" line from the list (often "Chaos - Chaos Space
+  // Marines" style, broad alignment first) is passed to the AI lookup as a
+  // faction hint, using its most specific (last) segment.
+  const declaredFaction = (declaredFactionLine || '').split(/\s+-\s+/).map(p => p.trim()).filter(Boolean).pop() || '';
   // The folder holds reference datasheets, not a battle roster — fielding
   // the same unit more than once (e.g. two Plaguebearers units) doesn't
   // need a second identical reference page, so only the first occurrence
@@ -1437,8 +886,8 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
     try{
       const d = await lookupDatasheetRaw(uniqueUnits[i].n, declaredFaction, false);
       // The pasted list's own stated points win over the looked-up
-      // datasheet's — a player's list is never corrected against the
-      // official points dataset (see the note above renderArmyListConfirm).
+      // datasheet's — a player's list is never corrected (see the note
+      // above renderArmyListConfirm).
       // Units the list gave no cost for keep whatever the lookup returned.
       if(uniqueUnits[i].pts){
         d.points = uniqueUnits[i].pts + ' pts';
@@ -1449,10 +898,8 @@ async function runArmyListImport(units, rawText, folderName, title, detachmentHi
       failed.push(uniqueUnits[i].n);
     }
   }
-  // Detachments were already detected and shown as their own checkboxes on
-  // the confirm screen (see handleArmyListFile/findAnyFactionDetachmentsInList)
-  // — the user's picks there (possibly none, if every one got unchecked)
-  // are honored as-is rather than re-detecting.
+  // No Detachment Rules cards are detected from a pasted list any more
+  // (see handleArmyListFile), so this is normally empty.
   const detachmentCards = selectedDetachments || [];
   // Every list upload creates exactly one new folder — the selected units
   // (freshly looked up, one reference page per unique unit), the full
@@ -1793,11 +1240,10 @@ async function setUnitEnhancement(battleId, team, unitId, enhancement){
 
 // Every Enhancement available to a side, pooled across every Detachment
 // Rules card on its roster (a side can carry more than one — see
-// renderTeamStratagems), each refreshed via the usual self-heal so a
-// stale saved Detachment doesn't offer an outdated Enhancement list.
+// renderTeamStratagems), read from the cards as saved on this device.
 async function loadSideEnhancements(battle, team){
   const detachmentEntries = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => u.isDetachment);
-  const cards = await Promise.all(detachmentEntries.map(u => withFreshDetachmentData(u.card)));
+  const cards = detachmentEntries.map(u => u.card || {});
   const flat = [];
   for(const card of cards){
     for(const e of (card.enhancements||[])){
@@ -1859,126 +1305,25 @@ function normalizeMissionKey(name){
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// Only the successful result gets cached — a transient failure (a flaky
-// mobile connection dropping this one fetch) used to poison the cache with
-// a resolved-to-null promise for the rest of the session, silently
-// breaking every draw/redraw from then on with no way to recover short of
-// a full reload. A failed attempt now just tries again next time it's
-// needed instead.
-let secondaryMissionsDataPromise = null;
-function loadSecondaryMissionsData(){
-  if(secondaryMissionsDataPromise) return secondaryMissionsDataPromise;
-  const attempt = fetch('/secondary-missions-data.json')
-    .then(r => r.ok ? r.json() : null)
-    .catch(() => null);
-  secondaryMissionsDataPromise = attempt;
-  attempt.then(result => { if(!result) secondaryMissionsDataPromise = null; });
-  return attempt;
-}
-
-// Re-hydrates a card's flavor/scoring/action from the current mission data
-// whenever they're missing — a safety net for a stored card ending up
-// incomplete by whatever means (a failed fetch caught mid-draw, corrupted
-// storage, anything else not yet understood), so the achieve screen always
-// has something to show rather than silently rendering a near-empty card.
-async function withFreshSecondaryData(card){
-  if(card.flavor && card.scoring && card.scoring.length) return card;
-  const missionsData = await loadSecondaryMissionsData();
-  if(!missionsData) return card;
-  const fresh = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === card.key);
-  if(!fresh) return card;
-  return { ...card, flavor: fresh.flavor, intro: fresh.intro, scoring: fresh.scoring, action: fresh.action };
-}
-
-function shuffled(arr){
-  const a = arr.slice();
-  for(let i = a.length - 1; i > 0; i--){
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// Lazily backfills the draw-deck fields onto a tracker side — battles
-// started before this feature existed have a side with none of them yet —
-// and builds its shuffled deck the first time it's needed, excluding
-// whatever's already active/completed/discarded so re-running this on an
-// already-playing side is a safe no-op.
-function ensureSecondaryDeck(side, allMissionKeys){
+// Secondary Missions are player-entered: the app holds no mission card
+// data, so each card is just the name the player typed (plus optional notes
+// in their own words) — see renderAddSecondaryMission. Older battles may
+// still carry deck fields (secondaryDeckKeys etc.) from earlier versions;
+// they're simply ignored now.
+function ensureSecondaryLists(side){
   if(!side.secondaries) side.secondaries = [];
   if(!side.completedSecondaries) side.completedSecondaries = [];
   if(!side.secondaryDiscardKeys) side.secondaryDiscardKeys = [];
-  if(!side.secondaryDeckKeys){
-    const inUse = new Set([
-      ...side.secondaries.map(s => s.key),
-      ...side.completedSecondaries.map(s => s.key),
-      ...side.secondaryDiscardKeys,
-    ]);
-    side.secondaryDeckKeys = shuffled(allMissionKeys.filter(k => !inUse.has(k)));
-  }
-  // Which turns already had Secondary Missions resolved (drawn or manually
-  // set), and how — keyed by turn number, so going back to an earlier turn
-  // with Previous Turn still shows it as resolved instead of allowing a
-  // second draw/set there. Replaces the older secondaryLastDrawnTurn, which
-  // only remembered the single most recent turn drawn on, not every turn's
-  // own history — a battle saved with that old field gets it folded in here
-  // as a one-time migration (as a 'drawn' resolution, since that field only
-  // ever recorded a random draw) rather than losing that turn's state.
-  if(!side.secondaryTurnResolutions){
-    side.secondaryTurnResolutions = {};
-    if(side.secondaryLastDrawnTurn) side.secondaryTurnResolutions[side.secondaryLastDrawnTurn] = 'drawn';
-  }
   if(side.usedNewOrders === undefined) side.usedNewOrders = false;
 }
 
-function buildSecondaryCard(mission, key){
-  return {
+function addCustomSecondaryCard(side, name, notes){
+  const card = {
     id: uid('sec_'),
-    key,
-    displayName: mission.displayName,
-    flavor: mission.flavor,
-    intro: mission.intro,
-    scoring: mission.scoring,
-    action: mission.action,
+    key: normalizeMissionKey(name),
+    displayName: name,
+    notes: notes || '',
   };
-}
-
-// Draws one card, reshuffling the discard pile back into the deck first if
-// it's run dry — same as a real card deck. With only 18 Secondary Missions
-// total and up to 5 rounds of 2-a-turn draws plus New Orders/CP discards,
-// running out during a long battle is the expected case, not an edge one.
-// Returns null (never throws) if every mission is already active or
-// completed on this side — nothing left to draw, not a bug.
-function drawSecondaryCard(side, missionsData){
-  if(side.secondaryDeckKeys.length === 0){
-    if(side.secondaryDiscardKeys.length === 0) return null;
-    side.secondaryDeckKeys = shuffled(side.secondaryDiscardKeys);
-    side.secondaryDiscardKeys = [];
-  }
-  const key = side.secondaryDeckKeys.pop();
-  const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
-  if(!mission) return null;
-  const card = buildSecondaryCard(mission, key);
-  side.secondaries.push(card);
-  return card;
-}
-
-// Adds a specific, player-chosen mission instead of a random draw — some
-// scenarios call for setting Secondary Missions rather than drawing them.
-// Pulls the key out of wherever it currently sits (the undrawn deck or the
-// discard pile — both are "not yet in hand" and eligible) so it can't also
-// turn up in a later random draw or reshuffle. Returns null if the key
-// isn't actually available (already active/completed, or not a real
-// mission) rather than adding a duplicate or bogus card.
-function setSecondaryCard(side, key, missionsData){
-  const inDeck = side.secondaryDeckKeys.includes(key);
-  const inDiscard = side.secondaryDiscardKeys.includes(key);
-  if(!inDeck && !inDiscard) return null;
-  const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
-  if(!mission) return null;
-  if(inDeck) side.secondaryDeckKeys = side.secondaryDeckKeys.filter(k => k !== key);
-  else side.secondaryDiscardKeys = side.secondaryDiscardKeys.filter(k => k !== key);
-  const card = buildSecondaryCard(mission, key);
   side.secondaries.push(card);
   return card;
 }
@@ -2046,20 +1391,6 @@ async function updateBattleTracker(battleId, mutateFn){
   return battle;
 }
 
-// Which Detachment card (by its roster-entry id) is the active one for a
-// side that has more than one — see needsDispositionChoice/
-// resolveActiveDetachment. Lives directly on the battle, same as
-// opponent/date, since it's a property of that battle's roster rather
-// than in-game tracker state.
-async function updateBattleActiveDetachment(battleId, team, detachmentUnitId){
-  const list = await loadBattles();
-  const battle = list.find(b => b.id === battleId);
-  if(!battle) return;
-  if(team === 'my') battle.myActiveDetachmentId = detachmentUnitId;
-  else battle.opponentActiveDetachmentId = detachmentUnitId;
-  await saveBattlesList(list);
-}
-
 // ---------- COLLECTION (saved units, reusable across battles) ----------
 // A datasheet saved here is a standalone copy, same pattern as a battle
 // roster entry — reopening or adding it to a battle never needs another
@@ -2083,18 +1414,6 @@ async function removeUnitFromCollection(unitId){
 async function addTextListToCollection(rawText, label){
   const list = await loadCollection();
   const entry = { id: uid('c_'), savedAt: Date.now(), isTextList: true, listName: label || 'Imported List', rawText };
-  list.unshift(entry);
-  await saveCollectionList(list);
-  return entry;
-}
-
-// A standalone Detachment Rules card saved from the search box (see
-// findDetachmentByName / renderDetachmentSearchResult) — same "acts like a
-// unit entry" pattern as the text-list entry above, but holds a detachment
-// card instead of a datasheet or raw text.
-async function addDetachmentToCollection(card){
-  const list = await loadCollection();
-  const entry = { id: uid('c_'), savedAt: Date.now(), isDetachment: true, card };
   list.unshift(entry);
   await saveCollectionList(list);
   return entry;
@@ -2150,17 +1469,9 @@ async function sendUnitToFolder(datasheet, folderId){
   addUnitIntoFolder(folder, datasheet);
   await saveCollectionList(list);
 }
-async function sendDetachmentToFolder(card, folderId){
-  const list = await loadCollection();
-  const folder = list.find(f => f.id === folderId && f.isFolder);
-  if(!folder) return;
-  addDetachmentIntoFolder(folder, card);
-  await saveCollectionList(list);
-}
-
 // Generic "which Army List folder?" screen — reused by the long-press
 // "Move to..." (moveCollectionEntryToFolder) and "Send to Army Folder" on
-// a search result (sendUnitToFolder/sendDetachmentToFolder). Callers own
+// a search result (sendUnitToFolder). Callers own
 // what actually happens on pick/cancel; this only lists folders and wires
 // the taps.
 async function renderSendToFolderPicker(itemLabel, verb, onPick, onCancel){
@@ -2264,26 +1575,6 @@ function renderNewBattleForm(){
 }
 
 // ---------- SCREEN: BATTLE DETAIL ----------
-// A roster with more than one Detachment card needs the player to pick
-// which one's Deposition actually applies for that battle (real 40k rule
-// — an army built from two Detachments still only fields one Deposition).
-// With 0 or 1 Detachment there's nothing ambiguous, so no choice is ever
-// needed. activeId is ignored/moot in that case.
-function needsDispositionChoice(units, activeId){
-  const detachments = units.filter(u => u.isDetachment);
-  if(detachments.length <= 1) return false;
-  return !activeId || !detachments.some(d => d.id === activeId);
-}
-// The Detachment actually in effect: the only one if there's just one, the
-// chosen one if there's a valid stored choice among several, otherwise
-// null (ambiguous, unresolved).
-function resolveActiveDetachment(units, activeId){
-  const detachments = units.filter(u => u.isDetachment);
-  if(detachments.length === 0) return null;
-  if(detachments.length === 1) return detachments[0];
-  return detachments.find(d => d.id === activeId) || null;
-}
-
 // Shared by renderBattleDetail and the Battle Tracker's My Army/Opponent's
 // Army tabs — same roster cards, same remove button, in both places.
 // activeDetachmentId marks which Detachment card (if this side has more
@@ -2381,16 +1672,10 @@ async function renderBattleDetail(battleId){
     : tracker.started ? '⚔️ Continue Battle'
     : '⚔️ Start Battle';
 
-  const needsChoice = needsDispositionChoice(battle.myUnits, battle.myActiveDetachmentId) || needsDispositionChoice(battle.opponentUnits, battle.opponentActiveDetachmentId);
-  // Once there's more than one Detachment on a side, the button stays —
-  // relabeled once resolved — so a wrong pick can still be corrected
-  // later, not just made once and then hidden.
-  const hasMultipleDetachments = battle.myUnits.filter(u => u.isDetachment).length > 1 || battle.opponentUnits.filter(u => u.isDetachment).length > 1;
 
   main.innerHTML = `
     <div class="noteBox">vs <strong>${escapeHtml(battle.opponent)}</strong> — ${escapeHtml(formatBattleDate(battle.date))}</div>
     <button class="btn primary" id="scanForBattleBtn">➕ Add Units</button>
-    ${hasMultipleDetachments ? `<button class="btn gold" id="chooseDetachBtn" style="margin-top:6px;">${needsChoice ? '⚠️ Choose Active Detachment' : '🔀 Change Active Detachment'}</button>` : ''}
     <button class="btn gold" id="startBattleTrackerBtn" style="margin-top:6px;">${battleBtnLabel}</button>
     <button class="btn ghost" id="deleteBattleBtn" style="margin-top:6px;">🗑 Delete This Battle</button>
     <button class="btn ghost" id="battleDetailHomeBtn" style="margin-top:6px;">🏠 Home</button>
@@ -2407,16 +1692,7 @@ async function renderBattleDetail(battleId){
   wireTeamCards(battle, battleId, 'opponent', (unit) => renderRosterEntry(unit, battle, () => renderBattleDetail(battleId), '← Back to Battle'), () => renderBattleDetail(battleId));
 
   document.getElementById('scanForBattleBtn').onclick = () => renderBattleScanChoice(battleId);
-  if(document.getElementById('chooseDetachBtn')) document.getElementById('chooseDetachBtn').onclick = () => renderChooseActiveDetachment(battleId);
   document.getElementById('startBattleTrackerBtn').onclick = async () => {
-    // A side with more than one Detachment needs the player to pick which
-    // one's Deposition actually applies before play begins — a real 40k
-    // rule, not something to silently guess at.
-    const fresh = await getBattleById(battleId);
-    if(needsDispositionChoice(fresh.myUnits, fresh.myActiveDetachmentId) || needsDispositionChoice(fresh.opponentUnits, fresh.opponentActiveDetachmentId)){
-      renderChooseActiveDetachment(battleId);
-      return;
-    }
     if(!tracker.started){
       await updateBattleTracker(battleId, t => { t.started = true; });
     }
@@ -2430,64 +1706,6 @@ async function renderBattleDetail(battleId){
   document.getElementById('battleDetailBackTarget').onclick = renderBattleList;
   if(document.getElementById('shareMyQrBtn')) document.getElementById('shareMyQrBtn').onclick = () => renderShareRosterQr(battleId, 'my');
   if(document.getElementById('shareOppQrBtn')) document.getElementById('shareOppQrBtn').onclick = () => renderShareRosterQr(battleId, 'opponent');
-}
-
-// Shown either voluntarily (the "⚠️ Choose Active Detachment" button on
-// Battle Detail, whenever a side has more than one) or forced on tapping
-// Start Battle if it's still unresolved — either way, tapping an option
-// picks it immediately and re-renders this same screen so the choice is
-// visible right away; Continue only actually proceeds once every side
-// that needs one has a valid choice made.
-async function renderChooseActiveDetachment(battleId, onDone){
-  onDone = onDone || (() => renderBattleDetail(battleId));
-  setStatus('', 'STANDBY');
-  const battle = await getBattleById(battleId);
-  if(!battle){ renderBattleList(); return; }
-  for(const u of [...battle.myUnits, ...battle.opponentUnits]){
-    if(u.isDetachment) u.card = await withFreshDetachmentData(u.card);
-  }
-
-  const buildSideChoice = (units, team, label, activeId) => {
-    const detachments = units.filter(u => u.isDetachment);
-    if(detachments.length <= 1) return '';
-    return `
-      <div class="sectionTitle" style="padding:0 2px; margin-top:8px;">${escapeHtml(label)}</div>
-      ${detachments.map(d => `
-        <button class="btn ${d.id === activeId ? 'primary' : 'ghost'}" data-choose-detach="${d.id}" data-choose-team="${team}" style="display:block; width:100%; text-align:left; margin-bottom:8px;">
-          ${d.id === activeId ? '✓ ' : ''}${escapeHtml(d.card.displayName || 'Detachment')} — ${escapeHtml(d.card.disposition || 'No Deposition')}
-        </button>
-      `).join('')}
-    `;
-  };
-
-  const myHtml = buildSideChoice(battle.myUnits, 'my', 'My Army', battle.myActiveDetachmentId);
-  const oppHtml = buildSideChoice(battle.opponentUnits, 'opponent', `${battle.opponent}'s Army`, battle.opponentActiveDetachmentId);
-
-  main.innerHTML = `
-    <div class="noteBox">More than one Detachment was found. An army only fields one Deposition at a time — pick which Detachment's applies for this battle.</div>
-    ${myHtml}
-    ${oppHtml}
-    <button class="btn primary" id="confirmDetachChoiceBtn" style="margin-top:14px;">✓ Continue</button>
-    <button class="btn ghost" id="cancelDetachChoiceBtn" data-nav-back>← Back to Battle</button>
-  `;
-
-  main.querySelectorAll('[data-choose-detach]').forEach(btn => {
-    btn.onclick = async () => {
-      await updateBattleActiveDetachment(battleId, btn.getAttribute('data-choose-team'), btn.getAttribute('data-choose-detach'));
-      renderChooseActiveDetachment(battleId, onDone);
-    };
-  });
-
-  document.getElementById('confirmDetachChoiceBtn').onclick = async () => {
-    const fresh = await getBattleById(battleId);
-    const stillNeeded = needsDispositionChoice(fresh.myUnits, fresh.myActiveDetachmentId) || needsDispositionChoice(fresh.opponentUnits, fresh.opponentActiveDetachmentId);
-    if(stillNeeded){
-      main.insertAdjacentHTML('afterbegin', '<div class="noteBox" style="border-color:var(--blood-bright); color:var(--parchment);">Pick one Detachment for each army listed above before continuing.</div>');
-      return;
-    }
-    onDone();
-  };
-  document.getElementById('cancelDetachChoiceBtn').onclick = onDone;
 }
 
 function renderDeleteBattleConfirm(battle){
@@ -2678,8 +1896,7 @@ async function renderBattleCollectionPicker(battleId, team){
 // easily exceed that, while a name+faction pair per entry stays tiny even
 // for a large army. The importing side re-looks up each one (same as
 // typing it into Search by Name), so this trades a few automatic Gemini
-// calls (units only — Detachment Rules are always the static, no-Gemini
-// dataset) for never being able to fail on QR size or on stale embedded
+// calls for never being able to fail on QR size or on stale embedded
 // stats.
 async function renderShareRosterQr(battleId, team){
   setStatus('', 'STANDBY');
@@ -2688,17 +1905,15 @@ async function renderShareRosterQr(battleId, team){
   const allUnits = team === 'my' ? battle.myUnits : battle.opponentUnits;
   // Text-list entries have neither a name nor a faction, so they're
   // excluded (they'd otherwise show up as blank {n: undefined} junk in the
-  // payload) — Detachment Rules cards DO carry both and are included in
-  // their own d[] array, re-looked-up by name+faction on import the same
-  // way a unit is.
+  // payload). Detachment Rules cards aren't shared either: there's no
+  // detachment data left in the app to re-look them up from on import.
   const units = allUnits.filter(u => !u.isTextList && !u.isDetachment);
-  const detachments = allUnits.filter(u => u.isDetachment);
+  const detachments = [];
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
   const payload = JSON.stringify({
     v: 1,
     u: units.map(u => ({ n: u.unit_name, f: u.faction || '' })),
-    d: detachments.map(u => ({ n: u.card.displayName, f: u.card.faction || '' })),
   });
 
   let qrDataUrl;
@@ -2826,10 +2041,9 @@ function handleScannedRosterPayload(battleId, team, raw){
     document.getElementById('qrCancelBtn2').onclick = () => renderBattleScanEntry(battleId, team);
     return;
   }
-  // d[] is missing entirely on a roster QR generated before Detachment
-  // Rules were included in the payload — treat that the same as "none",
-  // not an error.
-  renderImportConfirm(battleId, team, parsed.u, Array.isArray(parsed.d) ? parsed.d : []);
+  // Any d[] (Detachment Rules) array from a QR made by an older app version
+  // is ignored — there's no detachment data left to look those up from.
+  renderImportConfirm(battleId, team, parsed.u, []);
 }
 
 async function renderImportConfirm(battleId, team, units, detachments){
@@ -2878,16 +2092,6 @@ async function runRosterImport(battleId, team, units, detachments){
       failed.push(units[i].n);
     }
   }
-  for(let i=0;i<(detachments||[]).length;i++){
-    renderLoading('IMPORTING ROSTER', `Looking up Detachment ${i+1} of ${detachments.length}: ${detachments[i].n}…`);
-    const card = await lookupDetachmentCard(detachments[i].n, detachments[i].f || '');
-    if(card){
-      await addUnitToBattle(battleId, team, { isDetachment: true, card });
-      succeeded++;
-    } else {
-      failed.push(detachments[i].n);
-    }
-  }
   setStatus('', 'LINK ESTABLISHED');
   renderImportSummary(battleId, succeeded, failed);
 }
@@ -2914,15 +2118,18 @@ async function renderBattleUnitView(battle, unit, onBack, backLabel){
     return;
   }
   const team = findUnitTeam(battle, unit.id);
-  unit = await withFreshDatasheetFields(unit);
   // Any unit can carry an Enhancement/upgrade, not just Characters — only
   // gated on this view being reached from an actual battle roster (team
   // resolved), since a saved Collection unit isn't tied to any particular
   // Detachment's own Enhancement list the way a roster entry is.
+  // Enhancements only come from Detachment Rules cards saved on this device
+  // by an earlier app version, so the button only shows when there's one to
+  // pick from (or one already assigned that can be changed/removed).
+  const showEnhance = !!team && (!!unit.enhancement || (await loadSideEnhancements(battle, team)).length > 0);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `
-    ${team ? `<button class="btn gold" id="enhanceBtn">🎖 ${unit.enhancement ? 'Change' : 'Add'} Enhancement</button>` : ''}
+    ${showEnhance ? `<button class="btn gold" id="enhanceBtn">🎖 ${unit.enhancement ? 'Change' : 'Add'} Enhancement</button>` : ''}
     <button class="btn ghost" id="unitBackBtn" data-nav-back>${escapeHtml(backLabel)}</button>
   `;
   if(document.getElementById('enhanceBtn')){
@@ -2952,7 +2159,7 @@ function buildSideTrackerHtml(side, team, label, turn){
       <span class="secName">📋 ${escapeHtml(s.displayName)}</span>
       <span class="secMenuHint">⋮</span>
     </div>
-  `).join('') || `<div class="loadSub">No active secondaries — draw 2 to start.</div>`;
+  `).join('') || `<div class="loadSub">No active secondaries — add the ones you drew to start.</div>`;
 
   const completed = side.completedSecondaries || [];
   const completedHtml = completed.length ? `
@@ -2965,20 +2172,7 @@ function buildSideTrackerHtml(side, team, label, turn){
     `).join('')}
   ` : '';
 
-  const resolution = (side.secondaryTurnResolutions || {})[turn];
-  const deckExhausted = (side.secondaryDeckKeys || []).length === 0 && (side.secondaryDiscardKeys || []).length === 0;
-  // Draw and Set are the same choice either way — random or player-picked
-  // — so once one of them has resolved this turn, both are replaced by a
-  // single disabled marker naming which was used; neither shows at all
-  // otherwise, so there's no way to draw AND set (or draw/set twice) on
-  // the same turn, including after stepping back to an earlier turn with
-  // Previous Turn that already had one resolved.
-  const drawSetHtml = resolution
-    ? `<button class="btn ghost" data-draw-team="${team}" style="margin-top:10px;" disabled>✓ ${resolution === 'manual' ? 'Manually Set This Turn' : 'Drawn This Turn'}</button>`
-    : `
-      <button class="btn gold" data-draw-team="${team}" style="margin-top:10px;" ${deckExhausted ? 'disabled' : ''}>${deckExhausted ? 'No Missions Left to Draw' : '🎲 Draw 2 Secondary Missions'}</button>
-      <button class="btn ghost" data-set-team="${team}" style="margin-top:8px;" ${deckExhausted ? 'disabled' : ''}>📝 Set Secondary Missions</button>
-    `;
+  const addHtml = `<button class="btn gold" data-add-sec-team="${team}" style="margin-top:10px;">➕ Add Secondary Mission</button>`;
 
   return `
     <div class="trackerSide">
@@ -2996,7 +2190,7 @@ function buildSideTrackerHtml(side, team, label, turn){
       <div class="secListLabel">Secondary Missions (tap to view, hold for options)</div>
       ${secHtml}
       ${completedHtml}
-      ${drawSetHtml}
+      ${addHtml}
     </div>
   `;
 }
@@ -3082,7 +2276,6 @@ function buildTrackerTabHtml(battle, tracker){
       <div class="vpSide"><div class="vpLabel">${escapeHtml(battle.opponent)}</div><div class="vpTotal">${totalVP(tracker.opponent)}</div></div>
     </div>
     <div class="turnBadge">Turn ${tracker.turn}</div>
-    <button class="btn gold" id="primaryMissionBtn" style="margin-bottom:14px;">🎯 Primary Mission</button>
     ${buildSideTrackerHtml(tracker.my, 'my', 'My Army', tracker.turn)}
     ${buildSideTrackerHtml(tracker.opponent, 'opponent', `${battle.opponent}'s Army`, tracker.turn)}
     <button class="btn primary" id="finishTurnBtn" style="margin-top:14px;">${tracker.turn >= TOTAL_TURNS ? '🏁 Finish Game' : '➡ Finish Turn'}</button>
@@ -3105,19 +2298,15 @@ function buildSideTrackerReadOnlyHtml(side, label){
   `;
 }
 
-// Same scoring-block rendering as buildPrimaryMissionSideHtml (header, WHEN,
-// each entry's VP), but a Secondary Mission card has no per-turn "this is
-// the active one" concept to highlight — every block is just shown as
-// written — and entries can lead with "OR" (alternative condition) instead
-// of "+" (additive), and carry a VP cap ("(UP TO 5VP)") alongside plain
-// VP values. Also shown here: the optional WHEN-DRAWN/explanatory intro
-// text, and the nested Objective Action a handful of cards define.
+// Shows a Secondary Mission card: its name, the player's own notes, and —
+// for a card saved by an earlier app version that still carries them — the
+// scoring blocks stored with it on this device.
 function buildSecondaryScoringHtml(card){
   const blocksHtml = (card.scoring || []).map(block => `
     <div class="missionBlock">
       <div class="missionBlockHdr">${escapeHtml(block.header)}</div>
       ${block.when ? `<div class="missionBlockWhen">WHEN: ${escapeHtml(block.when)}</div>` : ''}
-      ${block.entries.map(e => `
+      ${(block.entries || []).map(e => `
         <div class="missionEntry">
           <span>${e.or ? 'OR ' : e.plus ? '+ ' : ''}${escapeHtml(e.text)}</span>
           <span class="missionVP">${escapeHtml(e.vp)}${e.cap ? ' ' + escapeHtml(e.cap) : ''}</span>
@@ -3125,7 +2314,7 @@ function buildSecondaryScoringHtml(card){
       `).join('')}
     </div>
   `).join('');
-  const actionHtml = card.action ? `
+  const actionHtml = (card.action && Array.isArray(card.action.rows)) ? `
     <div class="missionAction">
       <div class="missionActionName">🎯 ${escapeHtml(card.action.displayName)} (Objective Action)</div>
       ${card.action.rows.map(r => `<div class="missionActionRow"><b>${escapeHtml(r.label)}:</b> ${escapeHtml(r.text)}</div>`).join('')}
@@ -3135,8 +2324,9 @@ function buildSecondaryScoringHtml(card){
     <div class="missionSide">
       <div class="missionSideHead">
         <div class="missionName">${escapeHtml(card.displayName)}</div>
-        <div class="missionFlavor">${escapeHtml(card.flavor)}</div>
+        ${card.flavor ? `<div class="missionFlavor">${escapeHtml(card.flavor)}</div>` : ''}
         ${card.intro ? `<div class="missionFlavor" style="font-style:normal; margin-top:8px;">${escapeHtml(card.intro)}</div>` : ''}
+        ${card.notes ? `<div class="missionFlavor" style="font-style:normal; margin-top:8px; white-space:pre-wrap;">${escapeHtml(card.notes)}</div>` : ''}
       </div>
       ${blocksHtml}
       ${actionHtml}
@@ -3163,7 +2353,6 @@ async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   let card = activeCard || completedCard;
   if(!card){ renderBattleTracker(battleId, returnTab || 'tracker'); return; }
   const isCompleted = !activeCard;
-  card = await withFreshSecondaryData(card);
 
   main.innerHTML = `
     ${buildSecondaryScoringHtml(card)}
@@ -3196,66 +2385,25 @@ async function renderSecondaryMissionCard(battleId, team, secId, returnTab){
   }
 }
 
-// A handful of Secondary Missions carry their own discard-and-redraw
-// ability in their WHEN DRAWN text (e.g. Forward Position: "If it is the
-// first battle round, you can draw one new Secondary Mission card and
-// shuffle this card back into your Secondary Mission deck") — free, and
-// separate from New Orders entirely (no CP cost, doesn't touch the
-// once-per-battle limit). Detected generically from the card's own intro
-// text rather than a fixed name list, so a future data refresh that adds
-// or rewords cards doesn't need this list touched by hand.
-//
-// Most of these conditions are about the board (enemy unit stats,
-// positioning) — nothing the app tracks, so they're just shown as plain
-// text for the player to judge themselves, same as every other scoring
-// condition already is. Two shapes ARE something the app already knows
-// and can check for the player: "first battle round" (the tracker's own
-// turn number) and the Plunder/Cleanse pair, whose condition is literally
-// "the other one of these two is currently active for you" — checkable
-// against this same side's active secondaries.
-function cardRedrawAbility(card, side, tracker){
-  const intro = card.intro || '';
-  const isRedraw = /discard this card and draw one new|draw one new secondary mission card and shuffle this card back/i.test(intro);
-  if(!isRedraw) return null;
-  let eligible = null; // null = can't be checked here — player judges it
-  if(/first battle round/i.test(intro)){
-    eligible = tracker.turn === 1;
-  } else if(card.key === 'plunder'){
-    eligible = (side.secondaries || []).some(s => s.key === 'cleanse');
-  } else if(card.key === 'cleanse'){
-    eligible = (side.secondaries || []).some(s => s.key === 'plunder');
-  }
-  return { condition: intro, eligible };
-}
-
-// The long-press menu on an active Secondary Mission card. Three real,
-// sourced mechanics for cycling a Tactical Secondary mid-battle (see
-// scripts/fetch-secondary-missions.mjs for where "New Orders" was
-// confirmed in Wahapedia's core Stratagems.csv, and the Core Rules'
-// "Achieving Secondary Missions" step for the CP-discard): New Orders
-// (1CP, discard this card and draw a new one, once per battle per side),
-// a plain discard for 1CP (unlimited — the achieving-secondaries step
-// doesn't cap how many times this can be used), and — only when this
-// specific card's own text grants it — its own free discard-and-redraw
-// (see cardRedrawAbility). Reuses the existing .modalOverlay pattern (see
-// showManualInstallModal) rather than a new component.
+// The long-press menu on an active Secondary Mission card: New Orders
+// (1CP, once per battle per side — discards this card so the player can add
+// the replacement they drew from their own deck), a plain discard for +1 CP,
+// or removing a card that was added by mistake. Reuses the existing
+// .modalOverlay pattern (see showManualInstallModal).
 function showSecondaryActionMenu(battleId, team, card, tracker){
   const side = team === 'my' ? tracker.my : tracker.opponent;
   const newOrdersDisabled = side.usedNewOrders || side.cp < 1;
-  const ability = cardRedrawAbility(card, side, tracker);
-  const abilityNote = ability
-    ? `<div class="modalBody" style="margin-top:10px; font-size:10.5px;">${escapeHtml(ability.condition)}${ability.eligible === true ? ' — condition met.' : ability.eligible === false ? ' — condition not currently met.' : ' — you judge whether this applies.'}</div>`
-    : '';
   const overlay = document.createElement('div');
   overlay.className = 'modalOverlay';
   overlay.innerHTML = `
     <div class="modalCard">
       <div class="modalTitle">${escapeHtml(card.displayName)}</div>
       <div class="modalBody">Choose an action for this Secondary Mission.</div>
-      <button class="btn gold" id="secMenuNewOrders" style="margin-top:14px;" ${newOrdersDisabled ? 'disabled' : ''}>⚡ New Orders (1CP) — Discard &amp; Redraw${side.usedNewOrders ? ' (used)' : ''}</button>
+      <button class="btn gold" id="secMenuNewOrders" style="margin-top:14px;" ${newOrdersDisabled ? 'disabled' : ''}>⚡ New Orders (1CP) — Discard${side.usedNewOrders ? ' (used)' : ''}</button>
       <button class="btn gold" id="secMenuDiscardCp" style="margin-top:8px;">💰 Discard (+1 CP)</button>
-      ${ability ? `<button class="btn gold" id="secMenuCardRedraw" style="margin-top:8px;" ${ability.eligible === false ? 'disabled' : ''}>🔄 Discard &amp; Redraw (Card Ability)</button>${abilityNote}` : ''}
+      <button class="btn ghost" id="secMenuRemove" style="margin-top:8px;">🗑 Remove (added by mistake)</button>
       <button class="btn ghost" id="secMenuCancel" style="margin-top:8px;">✕ Cancel</button>
+      <div class="modalBody" style="margin-top:10px; font-size:10.5px;">After New Orders, add the card you drew with ➕ Add Secondary Mission.</div>
     </div>
   `;
   overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.remove(); });
@@ -3263,15 +2411,13 @@ function showSecondaryActionMenu(battleId, team, card, tracker){
   document.getElementById('secMenuCancel').onclick = () => overlay.remove();
   document.getElementById('secMenuNewOrders').onclick = async () => {
     overlay.remove();
-    const missionsData = await loadSecondaryMissionsData();
-    if(!missionsData) return;
     await updateBattleTracker(battleId, t => {
       const s = team === 'my' ? t.my : t.opponent;
+      ensureSecondaryLists(s);
       if(s.usedNewOrders || s.cp < 1) return;
       s.cp -= 1;
       s.usedNewOrders = true;
       discardSecondaryCard(s, card.id);
-      drawSecondaryCard(s, missionsData);
     });
     renderBattleTracker(battleId, 'tracker');
   };
@@ -3279,95 +2425,57 @@ function showSecondaryActionMenu(battleId, team, card, tracker){
     overlay.remove();
     await updateBattleTracker(battleId, t => {
       const s = team === 'my' ? t.my : t.opponent;
-      discardSecondaryCard(s, card.id);
-      s.cp += 1;
+      ensureSecondaryLists(s);
+      if(discardSecondaryCard(s, card.id)) s.cp += 1;
     });
     renderBattleTracker(battleId, 'tracker');
   };
-  if(document.getElementById('secMenuCardRedraw')){
-    document.getElementById('secMenuCardRedraw').onclick = async () => {
-      overlay.remove();
-      const missionsData = await loadSecondaryMissionsData();
-      if(!missionsData) return;
-      await updateBattleTracker(battleId, t => {
-        const s = team === 'my' ? t.my : t.opponent;
-        discardSecondaryCard(s, card.id);
-        drawSecondaryCard(s, missionsData);
-      });
-      renderBattleTracker(battleId, 'tracker');
-    };
-  }
+  document.getElementById('secMenuRemove').onclick = async () => {
+    overlay.remove();
+    await updateBattleTracker(battleId, t => {
+      const s = team === 'my' ? t.my : t.opponent;
+      s.secondaries = (s.secondaries || []).filter(x => x.id !== card.id);
+    });
+    renderBattleTracker(battleId, 'tracker');
+  };
 }
 
-// Lets a player choose exactly which two Secondary Missions a side gets
-// this turn, instead of drawing them at random — some scenarios call for
-// setting Secondary Missions rather than drawing them. Offered alongside
-// Draw 2 Secondary Missions (see buildSideTrackerHtml/data-set-team), and
-// mutually exclusive with it for the turn, same as Draw is with itself.
-async function renderSetSecondaryMissions(battleId, team){
+// Adds a Secondary Mission the player drew (or chose) from their own
+// physical/official deck. The app doesn't carry any mission card data, so
+// the player types the card's name, plus optional notes in their own words
+// about how it scores.
+async function renderAddSecondaryMission(battleId, team){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
   if(!battle){ renderBattleList(); return; }
   const tracker = ensureTracker(battle);
   if(tracker.finished){ renderBattleTracker(battleId, 'tracker'); return; }
-  const side = tracker[team];
   const label = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
 
-  const missionsData = await loadSecondaryMissionsData();
-  if(!missionsData){
-    main.innerHTML = `<div class="noteBox">Could not load mission data — check your connection and try again.</div>`;
-    footer.style.display = 'flex';
-    footer.innerHTML = `<button class="btn ghost" data-nav-back>← Back to Tracker</button>`;
-    footer.querySelector('[data-nav-back]').onclick = () => renderBattleTracker(battleId, 'tracker');
-    return;
-  }
-
-  // Anything not already in this side's hand or already scored is fair
-  // game to set — whether it's still sitting in the undrawn deck or has
-  // been discarded, same pool a random draw could reach.
-  const availableKeys = [...(side.secondaryDeckKeys || []), ...(side.secondaryDiscardKeys || [])];
-  const rows = availableKeys.map((key, i) => {
-    const mission = missionsData.missions.find(m => normalizeMissionKey(m.displayName) === key);
-    if(!mission) return '';
-    return `
-      <label class="libCard" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-        <input type="checkbox" class="setSecCheck" data-key="${escapeHtml(key)}" style="width:18px; height:18px; flex-shrink:0;"/>
-        <span class="libName" style="margin:0;">📋 ${escapeHtml(mission.displayName)}</span>
-      </label>
-    `;
-  }).join('');
-
   main.innerHTML = `
-    <div class="stickyTopBar">
-      <button class="btn primary" id="confirmSetSecBtn" disabled>✓ Set These 2 Missions</button>
-      <button class="btn ghost" id="cancelSetSecBtn" data-nav-back>← Back to Tracker</button>
-    </div>
-    <div class="noteBox">Choose exactly 2 Secondary Missions to set for ${escapeHtml(label)} this turn, instead of drawing at random.</div>
-    ${rows || '<div class="noteBox">No Secondary Missions left to set — every one is already in hand or scored.</div>'}
+    <div class="noteBox">Add a Secondary Mission for ${escapeHtml(label)} — type the name of the card you drew or chose from your own deck.</div>
+    <input id="secNameInput" type="text" maxlength="80" placeholder="Mission name" autocomplete="off" style="width:100%; box-sizing:border-box; margin-bottom:10px;"/>
+    <textarea id="secNotesInput" rows="3" maxlength="400" placeholder="Optional notes (your own words), e.g. how it scores" style="width:100%; box-sizing:border-box;"></textarea>
+    <button class="btn primary" id="confirmAddSecBtn" style="margin-top:12px;" disabled>✓ Add Mission</button>
   `;
-
-  const confirmBtn = document.getElementById('confirmSetSecBtn');
-  const checks = () => Array.from(main.querySelectorAll('.setSecCheck'));
-  main.querySelectorAll('.setSecCheck').forEach(cb => {
-    cb.onchange = () => {
-      const checkedCount = checks().filter(c => c.checked).length;
-      checks().forEach(c => { if(!c.checked) c.disabled = checkedCount >= 2; });
-      confirmBtn.disabled = checkedCount !== 2;
-    };
-  });
-
+  footer.style.display = 'flex';
+  footer.innerHTML = `<button class="btn ghost" id="cancelAddSecBtn" data-nav-back>← Back to Tracker</button>`;
+  const nameInput = document.getElementById('secNameInput');
+  const confirmBtn = document.getElementById('confirmAddSecBtn');
+  nameInput.addEventListener('input', () => { confirmBtn.disabled = !nameInput.value.trim(); });
+  nameInput.focus();
   confirmBtn.onclick = async () => {
-    const chosenKeys = checks().filter(c => c.checked).map(c => c.getAttribute('data-key'));
-    if(chosenKeys.length !== 2) return;
+    const name = nameInput.value.trim();
+    if(!name) return;
+    const notes = document.getElementById('secNotesInput').value.trim();
     await updateBattleTracker(battleId, t => {
       const s = t[team];
-      if(s.secondaryTurnResolutions[t.turn]) return;
-      for(const key of chosenKeys) setSecondaryCard(s, key, missionsData);
-      s.secondaryTurnResolutions[t.turn] = 'manual';
+      ensureSecondaryLists(s);
+      addCustomSecondaryCard(s, name, notes);
     });
     renderBattleTracker(battleId, 'tracker');
   };
-  document.getElementById('cancelSetSecBtn').onclick = () => renderBattleTracker(battleId, 'tracker');
+  document.getElementById('cancelAddSecBtn').onclick = () => renderBattleTracker(battleId, 'tracker');
 }
 
 async function renderBattleTracker(battleId, tab){
@@ -3383,22 +2491,14 @@ async function renderBattleTracker(battleId, tab){
   let battle = battle0;
   let tracker = ensureTracker(battle);
 
-  // The Secondary Mission draw deck needs to exist (and be persisted, not
-  // just held in memory) before the Tracker tab can render or draw from
-  // it — lazily backfilled here rather than in ensureTracker itself, since
-  // building the deck needs the mission data fetched first, and only the
-  // Tracker tab ever needs it at all.
-  let secondaryMissionsData = null;
+  // Make sure both sides have the secondary-mission lists in place (older
+  // battles may predate some of them) before the Tracker tab renders.
   if(tab === 'tracker' && !tracker.finished){
-    secondaryMissionsData = await loadSecondaryMissionsData();
-    if(secondaryMissionsData){
-      const allMissionKeys = secondaryMissionsData.missions.map(m => normalizeMissionKey(m.displayName));
-      const updated = await updateBattleTracker(battleId, t => {
-        ensureSecondaryDeck(t.my, allMissionKeys);
-        ensureSecondaryDeck(t.opponent, allMissionKeys);
-      });
-      if(updated){ battle = updated; tracker = ensureTracker(battle); }
-    }
+    const updated = await updateBattleTracker(battleId, t => {
+      ensureSecondaryLists(t.my);
+      ensureSecondaryLists(t.opponent);
+    });
+    if(updated){ battle = updated; tracker = ensureTracker(battle); }
   }
 
   const tabHtml = tab === 'my' ? buildTeamHtml(battle.myUnits, 'my', battle.myActiveDetachmentId)
@@ -3409,7 +2509,9 @@ async function renderBattleTracker(battleId, tab){
   // a quick reference to that side's Stratagems, pulled from every
   // Detachment Rules card on its roster, since that's what actually gets
   // reached for turn after turn during a battle.
-  const showStratagems = tab === 'my' || tab === 'opponent';
+  // Only when that side has a Detachment Rules card saved on this device
+  // (from an earlier app version) — there's nothing to show otherwise.
+  const showStratagems = (tab === 'my' || tab === 'opponent') && (tab === 'my' ? battle.myUnits : battle.opponentUnits).some(u => u.isDetachment);
 
   main.innerHTML = `
     <div class="stickyTopBar">
@@ -3426,10 +2528,6 @@ async function renderBattleTracker(battleId, tab){
   main.querySelectorAll('[data-tab]').forEach(btn => {
     btn.onclick = () => renderBattleTracker(battleId, btn.getAttribute('data-tab'));
   });
-
-  if(tab === 'tracker' && document.getElementById('primaryMissionBtn')){
-    document.getElementById('primaryMissionBtn').onclick = () => renderPrimaryMission(battleId, tab);
-  }
 
   if(tab === 'tracker' && tracker.finished){
     main.querySelectorAll('[data-review-turn]').forEach(btn => {
@@ -3468,26 +2566,8 @@ async function renderBattleTracker(battleId, tab){
         renderBattleTracker(battleId, 'tracker');
       });
     });
-    main.querySelectorAll('[data-draw-team]').forEach(btn => {
-      btn.onclick = async () => {
-        const team = btn.getAttribute('data-draw-team');
-        const missionsData = secondaryMissionsData || await loadSecondaryMissionsData();
-        if(!missionsData) return;
-        await updateBattleTracker(battleId, t => {
-          const s = t[team];
-          if(s.secondaryTurnResolutions[t.turn]) return;
-          drawSecondaryCard(s, missionsData);
-          drawSecondaryCard(s, missionsData);
-          s.secondaryTurnResolutions[t.turn] = 'drawn';
-        });
-        renderBattleTracker(battleId, 'tracker');
-      };
-    });
-    main.querySelectorAll('[data-set-team]').forEach(btn => {
-      btn.onclick = () => {
-        const team = btn.getAttribute('data-set-team');
-        renderSetSecondaryMissions(battleId, team);
-      };
+    main.querySelectorAll('[data-add-sec-team]').forEach(btn => {
+      btn.onclick = () => renderAddSecondaryMission(battleId, btn.getAttribute('data-add-sec-team'));
     });
     main.querySelectorAll('.secItem[data-sec-id]:not([data-sec-completed])').forEach(el => {
       const team = el.getAttribute('data-sec-team');
@@ -3518,7 +2598,7 @@ async function renderBattleTracker(battleId, tab){
       await renderBattleTracker(battleId, 'tracker');
       // A long roster/secondaries list can leave the page scrolled well
       // down when Finish Turn is tapped — jump back to the top so the new
-      // turn number and Primary Mission button are immediately visible
+      // turn number is immediately visible
       // instead of requiring a manual scroll up.
       main.scrollTop = 0;
     };
@@ -3684,7 +2764,6 @@ async function renderCollectionList(){
 
 async function renderCollectionUnitView(unit){
   setStatus('', 'STANDBY');
-  unit = await withFreshDatasheetFields(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collUnitBackBtn" data-nav-back>← Back to Collection</button>`;
@@ -3731,14 +2810,9 @@ function renderCollectionFolderView(entry){
   document.getElementById('collFolderBackBtn').onclick = renderCollectionList;
 }
 
-// Deposition (Purge the Foe, Take and Hold, Reconnaissance, Priority
-// Assets, or Disruption) is assigned to a Detachment directly by the
-// rules — it's a fixed property of card.disposition (from
-// Detachments.csv's force_disposition column, see fetch-detachments.mjs),
-// never something a player enters, so it always shows here whenever the
-// card has one. Blank only for Boarding Actions-type detachments (a
-// separate, smaller-scale game mode this data already excludes
-// stratagems for elsewhere).
+// Renders a Detachment Rules card saved on this device by an earlier
+// version of the app (no new ones are created any more). Shows whatever
+// the saved card carries; any missing section just shows a placeholder.
 function buildDetachmentRulesHtml(card){
   const depositionHtml = card.disposition ? `
     <div class="sheetFaction" style="color:var(--parchment); margin-top:4px;">Deposition: ${escapeHtml(card.disposition)}</div>
@@ -3757,16 +2831,6 @@ function buildDetachmentRulesHtml(card){
     </div>
   `).join('') || `<div class="loadSub">No enhancements listed.</div>`;
 
-  // Wahapedia's export also carries separate "phase"/"turn" columns
-  // meant to summarize a stratagem's timing, but a spot-check across the
-  // whole dataset found 20 stratagems (across 9 factions) where those
-  // columns don't match the stratagem's own "WHEN:" text — most likely
-  // that text getting corrected via errata without the separate summary
-  // columns being updated to match. Rather than show a summary line that
-  // can silently contradict the real rules text sitting right below it,
-  // the WHEN/TARGET/EFFECT text itself — the actual official wording,
-  // always self-consistent since it's a single field — is the only
-  // timing shown.
   const stratagemsHtml = (card.stratagems||[]).map(s => `
     <div class="abilityItem">
       <div class="abilityName">${escapeHtml(s.name||'')}${s.cpCost ? ' — '+escapeHtml(s.cpCost)+' CP' : ''}</div>
@@ -3793,13 +2857,13 @@ function buildDetachmentRulesHtml(card){
         <div class="sectionTitle">Stratagems</div>
         ${stratagemsHtml}
       </div>
-      <div class="noteBox">Rules text from Wahapedia's public 11th-edition data export. Always confirm against your army's official app or GW source before a tournament.</div>
+      <div class="noteBox">Saved on this device by an earlier version of WarCamera. Always confirm against your army's official app or GW source.</div>
     </div>
   `;
 }
 
 async function renderDetachmentRulesView(card, onBack, backLabel){
-  card = await withFreshDetachmentData(card);
+  card = card || {};
   setStatus('', 'STANDBY');
   main.innerHTML = buildDetachmentRulesHtml(card);
   footer.style.display = 'flex';
@@ -3808,11 +2872,9 @@ async function renderDetachmentRulesView(card, onBack, backLabel){
 }
 
 // ---------- SCREEN: BATTLE TRACKER — A SIDE'S STRATAGEMS (all Detachments on its roster) ----------
-// A side can carry more than one Detachment Rules card (see
-// needsDispositionChoice/hasMultipleDetachments in renderBattleDetail), so
-// this pulls every one of them rather than just the active Detachment —
-// during a battle a player can spend CP on a Stratagem from any Detachment
-// they've actually taken, not only the one governing their Deposition.
+// Only shows Detachment Rules cards already saved on this device by an
+// earlier app version — a side can carry more than one, so every one of
+// them is pulled.
 async function renderTeamStratagems(battleId, team){
   setStatus('', 'STANDBY');
   const battle = await getBattleById(battleId);
@@ -3820,7 +2882,7 @@ async function renderTeamStratagems(battleId, team){
   const teamLabel = team === 'my' ? 'My Army' : `${battle.opponent}'s Army`;
   const heading = team === 'my' ? 'Player Stratagems' : 'Opponent Stratagems';
   const detachmentEntries = (team === 'my' ? battle.myUnits : battle.opponentUnits).filter(u => u.isDetachment);
-  const cards = await Promise.all(detachmentEntries.map(u => withFreshDetachmentData(u.card)));
+  const cards = detachmentEntries.map(u => u.card || {});
 
   const sectionsHtml = cards.map(card => {
     const stratagemsHtml = (card.stratagems || []).map(s => `
@@ -3843,8 +2905,8 @@ async function renderTeamStratagems(battleId, team){
         <div class="sheetName">${escapeHtml(heading)}</div>
         <div class="sheetFaction">${escapeHtml(teamLabel)}</div>
       </div>
-      ${cards.length ? sectionsHtml : `<div class="noteBox">No Detachment Rules card has been added to ${escapeHtml(teamLabel)} yet — save one from a datasheet search or My Collection to see its stratagems here.</div>`}
-      ${cards.length ? '<div class="noteBox">Rules text from Wahapedia’s public 11th-edition data export. Always confirm against your army’s official app or GW source before a tournament.</div>' : ''}
+      ${cards.length ? sectionsHtml : `<div class="noteBox">No Detachment Rules cards on ${escapeHtml(teamLabel)}. Check your army's official app for its stratagems.</div>`}
+      ${cards.length ? '<div class="noteBox">Saved on this device by an earlier version of WarCamera. Always confirm against your army’s official app or GW source.</div>' : ''}
     </div>
   `;
   footer.style.display = 'flex';
@@ -3892,54 +2954,8 @@ async function renderAssignEnhancement(battleId, team, unitId, onDone){
   document.getElementById('cancelEnhBtn').onclick = onDone;
 }
 
-// Same card view as above, but reached from the search box instead of an
-// already-saved folder/collection entry — so it's not saved yet, and gets
-// Save/Send actions instead of a plain back link. Actions sit above the
-// card (which can run long — a rule plus every Enhancement and
-// Stratagem) rather than after it, so they're there without scrolling.
-// actionNote is an optional confirmation banner (e.g. after a Send)
-// shown just above the actions on re-render.
-function renderDetachmentSearchResult(card, actionNote){
-  setStatus('', 'LINK ESTABLISHED');
-  main.innerHTML = (actionNote || '') + `
-    <button class="btn gold" id="saveDetachToCollectionBtn">💾 Save to My Collection</button>
-    <button class="btn gold" id="sendDetachToFolderBtn" style="margin-top:8px;">📤 Send to Army Folder</button>
-  ` + buildDetachmentRulesHtml(card);
-  document.getElementById('saveDetachToCollectionBtn').onclick = async (e) => {
-    await addDetachmentToCollection(card);
-    const btn = e.currentTarget;
-    btn.textContent = '✓ Saved to My Collection';
-    btn.disabled = true;
-  };
-  document.getElementById('sendDetachToFolderBtn').onclick = () => {
-    renderSendToFolderPicker(card.displayName || 'Detachment', 'Send', async (folder) => {
-      await sendDetachmentToFolder(card, folder.id);
-      renderDetachmentSearchResult(card, `<div class="noteBox">✓ Sent to <strong>${escapeHtml(folder.folderName || 'Army List Units')}</strong>.</div>`);
-    }, () => renderDetachmentSearchResult(card));
-  };
-  footer.style.display = 'flex';
-  footer.innerHTML = `<button class="btn ghost" id="detachSearchBackBtn" data-nav-back>← Home</button>`;
-  document.getElementById('detachSearchBackBtn').onclick = renderHome;
-}
-
-function renderDetachmentFactionPicker(query, matches){
-  setStatus('', 'STANDBY');
-  main.innerHTML = `
-    <div class="stickyTopBar">
-      <button class="btn ghost" id="detachPickerCancelBtn" data-nav-back>✕ Cancel</button>
-    </div>
-    <div class="noteBox">"${escapeHtml(query)}" matches more than one Detachment. Which one do you want?</div>
-    ${matches.map((m, i) => `<button class="btn gold" data-detach-match-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(m.displayName || 'Detachment')} — ${escapeHtml(m.faction || 'Unknown Faction')}</button>`).join('')}
-  `;
-  matches.forEach((m, i) => {
-    document.querySelector(`[data-detach-match-idx="${i}"]`).onclick = () => renderDetachmentSearchResult(m);
-  });
-  document.getElementById('detachPickerCancelBtn').onclick = renderHome;
-}
-
 async function renderCollectionFolderUnitView(entry, unit){
   setStatus('', 'STANDBY');
-  unit = await withFreshDatasheetFields(unit);
   main.innerHTML = buildDatasheetSheetHtml(unit);
   footer.style.display = 'flex';
   footer.innerHTML = `<button class="btn ghost" id="collFolderUnitBackBtn" data-nav-back>← Back to Folder</button>`;
@@ -4071,38 +3087,15 @@ function renderCustomModelForm(thumb){
 // ---------- PHASE 2: STAT LOOKUP ----------
 // mode: 'direct' renders the full datasheet immediately (manual search).
 // mode: 'confirm' shows a quick stat-check screen first (photo ID path).
-// Core network lookup — builds the prompt, calls Gemini, parses the result,
-// and applies the official-points override. Returns the parsed datasheet or
+// Core network lookup — builds the prompt, calls Gemini, and parses the
+// result. Returns the parsed datasheet or
 // throws. Pulled out of fetchDatasheet() so the QR roster import flow (see
 // runRosterImport) can reuse the exact same lookup headlessly, without any
 // of fetchDatasheet's own loading/confirm/error screen rendering.
 async function lookupDatasheetRaw(unitName, faction, isLight){
-  // Check the scraped Wahapedia dataset before ever asking Gemini — when
-  // this unit is in it, its stats/weapons/abilities come straight from
-  // that authoritative, current-11e-only source, with no Gemini call at
-  // all for this step. See loadDatasheetsData above for why. When a unit
-  // has more than one faction's datasheet, this picks the one matching
-  // `faction` if given (fetchDatasheet() already resolved that through
-  // the picker for an interactive search with no hint) — a bulk import
-  // with no faction hint just gets the first variant.
-  const officialSheet = await lookupOfficialDatasheet(unitName, faction);
-  let parsed;
-
-  if(officialSheet){
-    parsed = buildParsedFromOfficialDatasheet(officialSheet, isLight);
-  } else {
-    parsed = await lookupDatasheetFromGemini(unitName, faction, isLight);
-  }
-
-  // Points always come from the separate Field Manual dataset regardless
-  // of where the rest of the datasheet came from — Wahapedia's export
-  // doesn't include points at all.
-  const officialPoints = await lookupOfficialPoints(parsed.unit_name);
-  if(officialPoints){
-    parsed.points = formatOfficialPoints(officialPoints);
-    parsed.points_uncertain = false;
-  }
-
+  // Every datasheet comes from the Gemini lookup, which is told to
+  // paraphrase rules text in its own words rather than quote it.
+  const parsed = await lookupDatasheetFromGemini(unitName, faction, isLight);
   return parsed;
 }
 
@@ -4174,19 +3167,6 @@ async function fetchDatasheet(unitName, faction, mode){
   setStatus('busy', 'RETRIEVING');
   renderLoading('CONSULTING ARCHIVES', `Pulling ${mode === 'confirm' ? 'quick stats' : 'full datasheet'} for ${unitName}…`);
 
-  // Some units (e.g. Nurgle Daemon units also available to Death Guard)
-  // have a separate official datasheet per faction. When the caller hasn't
-  // already pinned one down — a plain name search, not a photo ID (which
-  // already guesses a faction) or a re-fetch after picking one below —
-  // ask which faction's version instead of silently guessing.
-  if(!faction){
-    const variants = await lookupOfficialDatasheetVariants(unitName);
-    if(variants.length > 1){
-      renderFactionPicker(unitName, variants, mode);
-      return;
-    }
-  }
-
   const isLight = mode === 'confirm';
 
   try{
@@ -4199,21 +3179,6 @@ async function fetchDatasheet(unitName, faction, mode){
   }catch(err){
     renderLookupError(err, unitName, mode);
   }
-}
-
-function renderFactionPicker(unitName, variants, mode){
-  setStatus('', 'STANDBY');
-  main.innerHTML = `
-    <div class="stickyTopBar">
-      <button class="btn ghost" id="factionPickerCancelBtn" data-nav-back>✕ Cancel</button>
-    </div>
-    <div class="noteBox">"${escapeHtml(unitName)}" has its own datasheet in more than one army. Which one do you want?</div>
-    ${variants.map((v, i) => `<button class="btn gold" data-faction-idx="${i}" style="display:block; width:100%; margin-bottom:8px;">${escapeHtml(v.faction || 'Unknown Faction')}</button>`).join('')}
-  `;
-  variants.forEach((v, i) => {
-    document.querySelector(`[data-faction-idx="${i}"]`).onclick = () => fetchDatasheet(v.displayName || unitName, v.faction, mode);
-  });
-  document.getElementById('factionPickerCancelBtn').onclick = renderHome;
 }
 
 function renderLookupError(err, unitName, mode){
@@ -4572,15 +3537,24 @@ async function restoreSavedScreen(){
       if(nav.screen === 'collection') return renderCollectionList();
       if(nav.screen === 'customLibrary') return renderCustomLibrary();
       if(nav.battleId && (nav.screen === 'battleDetail' || nav.screen === 'battleTracker' || nav.screen === 'primaryMission')){
+        // 'primaryMission' was a screen in earlier versions — it now just
+        // reopens the battle tracker.
         const battle = await getBattleById(nav.battleId);
         if(!battle) return renderBattleList();
         if(nav.screen === 'battleDetail') return renderBattleDetail(nav.battleId);
         if(nav.screen === 'battleTracker') return renderBattleTracker(nav.battleId, nav.tab || 'tracker');
-        return renderPrimaryMission(nav.battleId, nav.returnTab || 'tracker');
+        return renderBattleTracker(nav.battleId, nav.returnTab || 'tracker');
       }
     }
   } catch(e) { /* any restore failure falls back to Home below */ }
   return renderHome();
+}
+
+// Earlier versions cached bundled rules/points/mission data files in their
+// own runtime cache; those files no longer exist, so clear that cache from
+// devices that still have it. Harmless no-op everywhere else.
+if(typeof caches !== 'undefined' && caches.delete){
+  caches.delete('warcamera-data-json').catch(() => {});
 }
 
 // init — behind the membership license gate
